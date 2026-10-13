@@ -6,4 +6,4 @@ curl -fsSL https://opencode.ai/install | bash || npm i -g opencode-ai
 sudo service ssh start 2>/dev/null || true
 cd backend && cargo build || true
 cd ../frontend && npm install
-echo "Ready. Run: opencode — then see docs/CODESPACE-TODO.md"
+echo "Ready. Run: opencode — then see docs/CODESPACE-PLAYBOOK.md"
