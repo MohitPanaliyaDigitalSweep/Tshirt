@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnSecondary, inputCls } from '../components/ui';
+import FlatViewEditor from '../components/FlatViewEditor';
+import type { View, Views, FlatItem } from '../components/ShirtViewer';
 import {
   ApiError,
   ORDER_STATUSES,
@@ -142,6 +144,14 @@ export default function OrderDetailPage() {
 
   const canEdit = editable(order.status);
   const snap = parseDesignSnapshot(order.design_snapshot);
+  const views: Views = snap.views
+    ? {
+        front: { items: (snap.views.front?.items ?? []) as FlatItem[] },
+        back: { items: (snap.views.back?.items ?? []) as FlatItem[] },
+        sleeveLeft: { items: (snap.views.sleeveLeft?.items ?? []) as FlatItem[] },
+        sleeveRight: { items: (snap.views.sleeveRight?.items ?? []) as FlatItem[] },
+      }
+    : { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
   const currentIdx = ORDER_STATUSES.indexOf((order.status ?? 'draft') as (typeof ORDER_STATUSES)[number]);
 
   return (
@@ -227,6 +237,19 @@ export default function OrderDetailPage() {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <h2 className="mb-2 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Design preview</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(['front','back','sleeveLeft','sleeveRight'] as View[]).map((v) => (
+            <div key={v}>
+              <div className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.22em] text-gold text-muted">{v}</div>
+              <FlatViewEditor view={v} items={views[v].items} readOnly onChange={() => {}} />
+              {views[v].items.length === 0 ? <p className="text-xs text-faint">—</p> : null}
+            </div>
+          ))}
+        </div>
+      </Card>
 
       <Card className="mt-4">
         <h2 className="mb-2 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Design snapshot</h2>

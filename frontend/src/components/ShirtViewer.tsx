@@ -2,32 +2,12 @@ import { ContactShadows, OrbitControls, useGLTF } from '@react-three/drei';
 import Interior from './Interior';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import gsap from 'gsap';
-import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
+import { clearCanvas, drawFlatItems, PRINTER_SIZES, type Views, type FlatItem } from '../lib/flat';
 
 export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
-
-export interface FlatItem {
-  id: string | number;
-  kind: 'image' | 'text';
-  url?: string;
-  text?: string;
-  font?: string;
-  size?: number; // px at 1024
-  color?: string;
-  x: number; // 0..1 center
-  y: number; // 0..1 center
-  scale: number; // relative, 1 = 0.2 view width
-  rotationDeg: number;
-  opacity?: number;
-}
-
-export interface Views {
-  front: { items: FlatItem[] };
-  back: { items: FlatItem[] };
-  sleeveLeft: { items: FlatItem[] };
-  sleeveRight: { items: FlatItem[] };
-}
+export type { FlatItem, Views };
 
 interface ShirtViewerProps {
   color?: string;
@@ -205,103 +185,67 @@ class ViewerErrorBoundary extends Component<{ children: ReactNode }, { error: st
   }
 }
 
-/** Create offscreen canvases and render views to textures */
+/** Create offscreen print canvases + CanvasTextures, one per view. */
 function createPrintRenderer() {
-  const canvasF = document.createElement('canvas');
-  const canvasB = document.createElement('canvas');
-  const canvasSL = document.createElement('canvas');
-  const canvasSR = document.createElement('canvas');
-  canvasF.width = canvasF.height = 1024;
-  canvasB.width = canvasB.height = 1024;
-  canvasSL.width = canvasSL.height = 512;
-  canvasSR.width = canvasSR.height = 512;
+  const canvases = {
+    front: document.createElement('canvas'),
+    back: document.createElement('canvas'),
+    sleeveLeft: document.createElement('canvas'),
+    sleeveRight: document.createElement('canvas'),
+  };
+  for (const key of ['front', 'back', 'sleeveLeft', 'sleeveRight'] as const) {
+    const s = PRINTER_SIZES[key];
+    const cv = canvases[key];
+    cv.width = s.w;
+    cv.height = s.h;
+  }
 
-  const ctxF = canvasF.getContext('2d');
-  const ctxB = canvasB.getContext('2d');
-  const ctxSL = canvasSL.getContext('2d');
-  const ctxSR = canvasSR.getContext('2d');
+  const ctxs = {
+    front: canvases.front.getContext('2d'),
+    back: canvases.back.getContext('2d'),
+    sleeveLeft: canvases.sleeveLeft.getContext('2d'),
+    sleeveRight: canvases.sleeveRight.getContext('2d'),
+  };
 
-  const texF = new THREE.CanvasTexture(canvasF);
-  const texB = new THREE.CanvasTexture(canvasB);
-  const texSL = new THREE.CanvasTexture(canvasSL);
-  const texSR = new THREE.CanvasTexture(canvasSR);
+  const texF = new THREE.CanvasTexture(canvases.front);
+  const texB = new THREE.CanvasTexture(canvases.back);
+  const texSL = new THREE.CanvasTexture(canvases.sleeveLeft);
+  const texSR = new THREE.CanvasTexture(canvases.sleeveRight);
 
   const textures = [texF, texB, texSL, texSR];
   textures.forEach((t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 4;
-    t.wrapS = t.wrapT = THREE.ClampToEdge;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     t.generateMipmaps = false;
   });
 
+  const renderRef = { current: null as null | ((views?: Views) => void) };
+  const redraw = () => {
+    renderRef.current?.();
+  };
+
   const render = (views?: Views) => {
     const viewsSafe = views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
-
-    // Clear canvases (transparent)
-    [ctxF, ctxB, ctxSL, ctxSR].forEach((ctx) => {
-      if (!ctx) return;
-      const c = ctx.canvas;
-      ctx.clearRect(0, 0, c.width, c.height);
-    });
-
-    const drawItems = (ctx: CanvasRenderingContext2D | null, items: FlatItem[], isFront: boolean) => {
-      if (!ctx) return;
-      const W = ctx.canvas.width;
-      const H = ctx.canvas.height;
-      const viewWidth = 0.4 * W; // 1 = 0.2 view width relative? spec says 1 = 0.2 view width - scale relative
-      items.forEach((item) => {
-        ctx.save();
-        const cx = item.x * W;
-        const cy = item.y * H;
-        ctx.translate(cx, cy);
-        ctx.rotate(((item.rotationDeg ?? 0) * Math.PI) / 180);
-        const scale = (item.scale ?? 1) * (viewWidth / 0.2); // interpret: relative 1 means 0.2 view width? spec: "scale (relative, 1 = 0.2 view width)"
-        const s = scale * 0.2; // simpler: treat as factor relative to 20% width
-        // Better interpretation: scale relative, 1 = 0.2 of view width at 1024 base
-        const relScale = item.scale ?? 1;
-        const boxW = (0.2 * W) * relScale;
-        const boxH = boxW; // base square for contain-fit sizing
-        ctx.globalAlpha = item.opacity ?? 1;
-        if (item.kind === 'image' && item.url) {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          try {
-            img.src = item.url;
-            // draw if loaded; if not, skip broken silently
-            if (img.complete && img.naturalWidth > 0) {
-              const iw = img.naturalWidth;
-              const ih = img.naturalHeight;
-              const ratio = Math.min(boxW / iw, boxH / ih);
-              const dw = iw * ratio;
-              const dh = ih * ratio;
-              ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-            }
-          } catch {
-            // skip silently
-          }
-        } else if (item.kind === 'text' && item.text) {
-          const fontSize = item.size ?? 60;
-          const fontFam = item.font || 'Inter';
-          ctx.font = `600 ${fontSize}px ${fontFam}`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = item.color || '#ffffff';
-          ctx.fillText(item.text, 0, 0);
-        }
-        ctx.restore();
-      });
-    };
-
-    drawItems(ctxF, viewsSafe.front.items, true);
-    drawItems(ctxB, viewsSafe.back.items, false);
-    drawItems(ctxSL, viewsSafe.sleeveLeft.items, false);
-    drawItems(ctxSR, viewsSafe.sleeveRight.items, false);
-
+    const pairs: Array<{ key: 'front' | 'back' | 'sleeveLeft' | 'sleeveRight'; items: FlatItem[] }> = [
+      { key: 'front', items: viewsSafe.front.items },
+      { key: 'back', items: viewsSafe.back.items },
+      { key: 'sleeveLeft', items: viewsSafe.sleeveLeft.items },
+      { key: 'sleeveRight', items: viewsSafe.sleeveRight.items },
+    ];
+    for (const { key, items } of pairs) {
+      const ctx = ctxs[key];
+      if (ctx) {
+        clearCanvas(ctx, canvases[key].width, canvases[key].height);
+        drawFlatItems(ctx, canvases[key].width, canvases[key].height, items, redraw);
+      }
+    }
     texF.needsUpdate = true;
     texB.needsUpdate = true;
     texSL.needsUpdate = true;
     texSR.needsUpdate = true;
   };
+  renderRef.current = render;
 
   const hasContent = (views?: Views) => {
     const v = views;
@@ -314,7 +258,7 @@ function createPrintRenderer() {
     ];
   };
 
-  return { canvasF, canvasB, canvasSL, canvasSR, texF, texB, texSL, texSR, render, hasContent };
+  return { canvases, texF, texB, texSL, texSR, render, hasContent };
 }
 
 function ShirtMesh({
@@ -353,9 +297,10 @@ function ShirtMesh({
       shader.uniforms['uPrintMap'] = uniforms.uPrintMap;
       shader.uniforms['uPrintOn'] = uniforms.uPrintOn;
 
-      // Vertex: add swing
+      // Vertex: add swing + export world position/normal for print projectors
       shader.vertexShader =
         'uniform vec2 uSwing;\nuniform float uTime;\nuniform float uWind;\n' +
+        'varying vec3 vWorldPosition;\nvarying vec3 vWorldNormal;\n' +
         shader.vertexShader.replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -364,7 +309,9 @@ function ShirtMesh({
           transformed.z += uSwing.y * swingW;
           transformed.y -= length(uSwing) * 0.35 * swingW
             + sin(uTime * 14.0 + position.y * 22.0 + position.x * 15.0) * 0.006 * uWind * swingW
-            + sin(uTime * 1.8 + position.x * 4.0) * 0.003 * swingW;`,
+            + sin(uTime * 1.8 + position.x * 4.0) * 0.003 * swingW;
+          vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);`,
         );
 
       // Fragment: projectors
@@ -457,8 +404,8 @@ if (uPrintOn[3] > 0.5) {
 }
 diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
 `;
-      const diffuse = '#include <map_fragment>';
-      shader.fragmentShader = shader.fragmentShader.replace(diffuse, mixChunk + diffuse);
+      const diffuse = '#include <color_fragment>';
+      shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
     mat.customProgramCacheKey = () => 'shirt-embedded-print-v1';
     return mat;

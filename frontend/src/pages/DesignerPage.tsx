@@ -3,11 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import ShirtViewer, { type View, type Views, type FlatItem } from '../components/ShirtViewer';
 import FlatViewEditor from '../components/FlatViewEditor';
-import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnSecondary, inputCls } from '../components/ui';
+import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnPrimary, btnSecondary, inputCls } from '../components/ui';
+import { drawFlatItems, drawSilhouetteAndBand } from '../lib/flat';
 import {
   ApiError,
   SETTINGS_DEFAULTS,
-  ZONES,
   createAsset,
   createOrder,
   getOrder,
@@ -23,86 +23,31 @@ import {
 } from '../lib/api';
 import { useSession } from '../lib/session';
 
-interface ZoneFile {
-  key: string;
-  name: string;
-  preview: string;
-  file: File | null;
-  url?: string;
-  file_type?: string;
-  scale: number;
+const PRESETS = ['#e5e7eb', '#ffffff', '#111827', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'];
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
 }
 
-type AnchorMap = Record<DecalAnchorId, ZoneFile[]>;
-
-const EMPTY_ANCHORS: AnchorMap = {
-  'front-center': [],
-  'front-top-left': [],
-  'front-top-right': [],
-  'front-bottom': [],
-  'back-center': [],
-  'back-top': [],
-  'sleeve-left': [],
-  'sleeve-right': [],
-};
-
-const ANCHOR_LABELS: Record<DecalAnchorId, string> = {
-  'front-center': 'Front · center',
-  'front-top-left': 'Front · top L',
-  'front-top-right': 'Front · top R',
-  'front-bottom': 'Front · bottom',
-  'back-center': 'Back · center',
-  'back-top': 'Back · top',
-  'sleeve-left': 'Sleeve · L',
-  'sleeve-right': 'Sleeve · R',
-};
-
-/** 8 print anchors -> the 4 backend zones (assets + legacy snapshot shape). */
-const ANCHOR_TO_ZONE: Record<DecalAnchorId, DecalZone> = {
-  'front-center': 'front',
-  'front-top-left': 'front',
-  'front-top-right': 'front',
-  'front-bottom': 'front',
-  'back-center': 'back',
-  'back-top': 'back',
-  'sleeve-left': 'sleeve_left',
-  'sleeve-right': 'sleeve_right',
-};
-
-const PRESETS = ['#e5e7eb', '#ffffff', '#111827', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'];
+/** Renders one print view to a compact JPEG dataURL for snapshot thumbs (drop if > ~38KB). */
+function renderThumb(view: View, items: FlatItem[]): string | null {
+  try {
+    const SIZE = 400;
+    const canvas = document.createElement('canvas');
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    drawSilhouetteAndBand(ctx, SIZE, SIZE, view);
+    drawFlatItems(ctx, SIZE, SIZE, items);
+    const url = canvas.toDataURL('image/jpeg', 0.72);
+    return url.length < 38 * 1024 ? url : null;
+  } catch {
+    return null;
+  }
+}
 const ACCEPT = 'image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg';
 const MAX_BYTES = 10 * 1024 * 1024;
-/** Data-URL embedding is only ever allowed for tiny thumbnails below this size. */
-const TINY_THUMBNAIL_BYTES = 150 * 1024;
-
-let keySeq = 0;
-function nextKey(): string {
-  keySeq += 1;
-  return `zf-${Date.now()}-${keySeq}`;
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result ?? ''));
-    r.onerror = () => reject(new Error('Could not read file'));
-    r.readAsDataURL(file);
-  });
-}
-
-function emptyAnchors(): AnchorMap {
-  return {
-    'front-center': [],
-    'front-top-left': [],
-    'front-top-right': [],
-    'front-bottom': [],
-    'back-center': [],
-    'back-top': [],
-    'sleeve-left': [],
-    'sleeve-right': [],
-  };
-}
-
 export default function DesignerPage() {
   const { token } = useSession();
   const nav = useNavigate();
@@ -133,6 +78,7 @@ export default function DesignerPage() {
   const [textSize, setTextSize] = useState(60);
   const [textColor, setTextColor] = useState('#ffffff');
   const [selectedId, setSelectedId] = useState<string|number|null>(null);
+  const itemFiles = useRef<Map<string, File>>(new Map());
 
   const qty = useMemo(() => sizes.S + sizes.M + sizes.L + sizes.XL, [sizes]);
 
@@ -194,7 +140,13 @@ export default function DesignerPage() {
         setNote(o.customer_note ?? '');
         const snap = parseDesignSnapshot(o.design_snapshot);
         if (snap.color) setColor(snap.color);
-        setViews(snap.views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } });
+        const sv = snap.views || {};
+        setViews({
+          front: { items: (sv.front?.items ?? []) as FlatItem[] },
+          back: { items: (sv.back?.items ?? []) as FlatItem[] },
+          sleeveLeft: { items: (sv.sleeveLeft?.items ?? []) as FlatItem[] },
+          sleeveRight: { items: (sv.sleeveRight?.items ?? []) as FlatItem[] },
+        });
         setInfo(`Editing order #${o.id} (${o.status ?? 'draft'}).`);
       } catch (e) {
         if (alive) setError(e instanceof ApiError ? e.message : 'Could not load order for editing');
@@ -208,10 +160,9 @@ export default function DesignerPage() {
   function onFiles(files: FileList | null) {
     if (!files) return;
     setError(null);
-    const list: ZoneFile[] = [];
+    const newItems: FlatItem[] = [];
     for (const f of Array.from(files)) {
-      const okType =
-        f.type === 'image/png' || f.type === 'image/jpeg' || f.type === 'image/svg+xml';
+      const okType = f.type === 'image/png' || f.type === 'image/jpeg' || f.type === 'image/svg+xml';
       if (!okType) {
         setError(`Rejected ${f.name}: only png/jpeg/svg allowed.`);
         continue;
@@ -220,57 +171,25 @@ export default function DesignerPage() {
         setError(`Rejected ${f.name}: larger than 10MB.`);
         continue;
       }
-      list.push({ key: nextKey(), name: f.name, preview: URL.createObjectURL(f), file: f, file_type: f.type, scale: 0.12 });
+      const url = URL.createObjectURL(f);
+      const fileForSave = f;
+      newItems.push({
+        id: `img-${Date.now()}-${Math.random()}`,
+        kind: 'image',
+        url,
+        x: 0.5,
+        y: 0.5,
+        scale: 1,
+        rotationDeg: 0,
+        opacity: 1,
+      } as FlatItem);
+      if (fileForSave) itemFiles.current.set(String(newItems[newItems.length - 1].id), fileForSave);
     }
-    if (list.length === 0) return;
-    setZones((z) => ({ ...z, [anchor]: [...z[anchor], ...list] }));
+    if (newItems.length === 0) return;
+    setViews((prev) => ({ ...prev, [activeView]: { items: [...prev[activeView].items, ...newItems] } }));
   }
 
-  function removeAt(a: DecalAnchorId, key: string) {
-    setZones((prev) => {
-      const target = prev[a].find((f) => f.key === key);
-      if (target && target.preview.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(target.preview);
-        } catch {
-          /* ignore */
-        }
-      }
-      return { ...prev, [a]: prev[a].filter((f) => f.key !== key) };
-    });
-  }
 
-  function move(a: DecalAnchorId, key: string, dir: -1 | 1) {
-    setZones((prev) => {
-      const arr = [...prev[a]];
-      const i = arr.findIndex((f) => f.key === key);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= arr.length) return prev;
-      const [item] = arr.splice(i, 1);
-      arr.splice(j, 0, item);
-      return { ...prev, [a]: arr };
-    });
-  }
-
-  function setScale(a: DecalAnchorId, key: string, scale: number) {
-    setZones((prev) => ({
-      ...prev,
-      [a]: prev[a].map((f) => (f.key === key ? { ...f, scale: clampDecalScale(scale, f.scale) } : f)),
-    }));
-  }
-
-  const decals = useMemo<ShirtDecal[]>(() => {
-    const out: ShirtDecal[] = [];
-    for (const a of ANCHOR_IDS) {
-      for (const f of zones[a]) {
-        const url = f.url ?? f.preview;
-        if (url) out.push({ zone: ANCHOR_TO_ZONE[a], url, anchor: a, scale: f.scale });
-      }
-    }
-    return out;
-  }, [zones]);
-
-  const totalArtworks = useMemo(() => ANCHOR_IDS.reduce((n, a) => n + zones[a].length, 0), [zones]);
 
   /** Upload-first persist: every new local file goes through POST /api/uploads and only the
    *  returned URL (+zone/transform) is stored. Data-URLs are never embedded, except tiny
@@ -285,57 +204,44 @@ export default function DesignerPage() {
     setInfo(null);
     setBusy(true);
     try {
-      const resolved: AnchorMap = emptyAnchors();
-      for (const a of ANCHOR_IDS) {
-        const out: ZoneFile[] = [];
-        for (const f of zones[a]) {
-          if (f.url && !f.url.startsWith('blob:') && !f.url.startsWith('data:')) {
-            out.push(f);
-            continue;
-          }
-          if (f.file) {
+      // Upload-first: any File-backed image item must upload via POST /api/uploads on save.
+      // The caller keeps original File objects in itemFiles, keyed by item id.
+      const viewsToSave: Views = {
+        front: { items: [] },
+        back: { items: [] },
+        sleeveLeft: { items: [] },
+        sleeveRight: { items: [] },
+      };
+      for (const vkey of ['front', 'back', 'sleeveLeft', 'sleeveRight'] as const) {
+        for (const it of views[vkey].items) {
+          const srcFile = itemFiles.current.get(String(it.id));
+          if (srcFile) {
             try {
-              const up = await uploadFile(f.file);
+              const up = await uploadFile(srcFile);
               if (!up.url) throw new ApiError(0, 'Upload failed: empty URL in server response');
-              out.push({ ...f, url: up.url, file_type: up.file_type ?? f.file.type });
+              viewsToSave[vkey].items.push({ ...it, url: up.url });
+              itemFiles.current.delete(String(it.id));
               continue;
             } catch (e) {
-              // Tiny-thumbnail exception: embed only files <150KB; anything larger aborts
-              // with the server message verbatim so the payload never triggers a 413.
-              if (f.file.size < TINY_THUMBNAIL_BYTES) {
-                try {
-                  const dataUrl = await fileToDataUrl(f.file);
-                  out.push({ ...f, url: dataUrl });
-                  continue;
-                } catch {
-                  /* fall through to verbatim error */
-                }
-              }
               throw e instanceof ApiError ? new ApiError(e.status, e.message, e.fields) : e;
             }
-          } else {
-            out.push(f);
           }
+          viewsToSave[vkey].items.push(it);
         }
-        resolved[a] = out;
       }
-      setZones(resolved);
-      const legacyZones = {
-        front: [] as Array<{ url?: string; name: string; file_type?: string | null }>,
-        back: [] as Array<{ url?: string; name: string; file_type?: string | null }>,
-        sleeve_left: [] as Array<{ url?: string; name: string; file_type?: string | null }>,
-        sleeve_right: [] as Array<{ url?: string; name: string; file_type?: string | null }>,
+      setViews(viewsToSave);
+      const thumbs: Record<string, string> = {};
+      for (const tv of ['front', 'back'] as const) {
+        const dataUrl = renderThumb(tv, viewsToSave[tv].items);
+        if (dataUrl && dataUrl.length < 38 * 1024) thumbs[tv] = dataUrl;
+      }
+      const snapshot: any = {
+        version: 2,
+        color,
+        material_id: materialId,
+        views: viewsToSave,
+        thumbs,
       };
-      const detailed: Array<{ url?: string; name: string; file_type?: string | null; zone: DecalZone; anchor: DecalAnchorId; scale: number }> = [];
-      for (const a of ANCHOR_IDS) {
-        const z = ANCHOR_TO_ZONE[a];
-        for (const f of resolved[a]) {
-          const url = f.url ?? f.preview;
-          legacyZones[z].push({ url, name: f.name, file_type: f.file_type ?? null });
-          detailed.push({ url, name: f.name, file_type: f.file_type ?? null, zone: z, anchor: a, scale: f.scale });
-        }
-      }
-      const snapshot = { color, material_id: materialId, zones: legacyZones, decals: detailed };
       const payload = {
         material_id: materialId,
         color,
@@ -354,19 +260,20 @@ export default function DesignerPage() {
         const updated = await updateOrder(id, payload);
         setOrderStatus(updated.status ?? orderStatus);
       }
-      for (const a of ANCHOR_IDS) {
-        for (const f of resolved[a]) {
-          if (!f.file || !id) continue;
-          if (!f.url || f.url.startsWith('data:') || f.url.startsWith('blob:')) continue;
-          try {
-            await createAsset(id, {
-              zone: ANCHOR_TO_ZONE[a],
-              file_url: f.url,
-              file_type: f.file_type ?? null,
-              transform: { anchor: a, scale: f.scale },
-            });
-          } catch {
-            /* asset record optional — snapshot already holds the URL */
+      for (const vkey of ['front', 'back', 'sleeveLeft', 'sleeveRight'] as const) {
+        for (const it of viewsToSave[vkey].items) {
+          if (it.kind === 'image' && it.url && !it.url.startsWith('data:') && !it.url.startsWith('blob:')) {
+            try {
+              const zoneMap: any = { front: 'front', back: 'back', sleeveLeft: 'sleeve_left', sleeveRight: 'sleeve_right' };
+              await createAsset(id, {
+                zone: zoneMap[vkey],
+                file_url: it.url,
+                file_type: null,
+                transform: { x: it.x, y: it.y, scale: it.scale, rotationDeg: it.rotationDeg },
+              });
+            } catch {
+              /* optional */
+            }
           }
         }
       }
@@ -379,14 +286,12 @@ export default function DesignerPage() {
       }
       return id;
     } catch (e) {
-      // Surface the server message verbatim (no prefix mangling).
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Save failed');
       return null;
     } finally {
       setBusy(false);
     }
   }
-
   return (
     <section ref={sectionRef} className="mx-auto max-w-7xl p-4 sm:p-6">
       <PageTitle
@@ -408,24 +313,24 @@ export default function DesignerPage() {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div data-designer-anim className="min-w-0 lg:sticky lg:top-20">
         <Card>
-          <div className="mb-2 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Print zones">
-            {ANCHOR_IDS.map((a) => (
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Views">
+            {['front','back','sleeveLeft','sleeveRight'].map((v) => (
               <button
-                key={a}
+                key={v}
                 type="button"
                 role="tab"
-                aria-selected={anchor === a}
-                onClick={() => setAnchor(a)}
-                className={`min-h-[44px] shrink-0 rounded-[4px] border px-3 py-2 text-sm font-medium transition-colors ${anchor === a ? 'border-gold-deep bg-gold text-ink' : 'border-rule bg-graphite text-warm hover:border-rule-strong hover:text-champagne'}`}
+                aria-selected={activeView === v}
+                onClick={() => setActiveView(v as View)}
+                className={`min-h-[44px] shrink-0 rounded-[4px] border px-3 py-2 text-sm font-medium transition-colors ${activeView === v ? 'border-gold-deep bg-gold text-ink' : 'border-rule bg-graphite text-warm hover:border-rule-strong hover:text-champagne'}`}
               >
-                {ANCHOR_LABELS[a]}
-                {zones[a].length > 0 ? <span className={`ml-1.5 rounded-full px-1.5 text-xs ${anchor === a ? 'bg-ink/15' : 'bg-gold/15 text-gold'}`}>{zones[a].length}</span> : null}
+                {v === 'front' ? 'Front' : v === 'back' ? 'Back' : v === 'sleeveLeft' ? 'Sleeve L' : 'Sleeve R'}
+                {views[v as View].items.length > 0 ? <span className={`ml-1.5 rounded-full px-1.5 text-xs ${activeView === v ? 'bg-ink/15' : 'bg-gold/15 text-gold'}`}>{views[v as View].items.length}</span> : null}
               </button>
             ))}
           </div>
           <ShirtViewer
             color={color}
-            decals={decals}
+            views={views}
             wind={wind}
             swingStrength={swingStrength}
             autoRotateSpeed={autorotateSpeed}
@@ -449,57 +354,61 @@ export default function DesignerPage() {
             />
           </label>
         </Card>
+        <div data-designer-anim className="mt-4">
+          <Card>
+            <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.22em] text-gold">Flat editor — {activeView}</h2>
+            <input type="file" accept={ACCEPT} multiple onChange={(e) => onFiles(e.target.files)} className="min-h-[44px] w-full rounded-[4px] border border-dashed border-rule bg-lacquer-deep px-3 py-2 text-sm text-warm file:mr-3 file:rounded-[4px] file:border-0 file:bg-graphite file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-gold hover:border-rule-strong" />
+            <p className="mt-2 text-xs text-faint">png / jpeg / svg, ≤10MB each. D&amp;D images land centered on the active view.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setTextForm(t => !t)} className={btnSecondary}>Add Text</button>
+            </div>
+            {textForm ? (
+              <div className="mt-3 space-y-2 rounded-[6px] border border-rule bg-graphite p-3">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Text</span>
+                  <input className={inputCls} value={textValue} onChange={(e) => setTextValue(e.target.value)} placeholder="Cricket Tshirts" />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Font</span>
+                    <select className={inputCls} value={textFont} onChange={(e) => setTextFont(e.target.value)}>
+                      {['Inter','Fraunces','Arial','Georgia','Impact','cursive'].map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Size</span>
+                    <input type="number" min={20} max={200} className={inputCls} value={textSize} onChange={(e) => setTextSize(clamp(Number(e.target.value), 20, 200))} />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Color</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {['#ffffff','#f5d98c','#e5b45c'].map(c => (
+                      <button key={c} type="button" onClick={() => setTextColor(c)} className={`h-9 w-9 rounded-full border ${textColor===c?'ring-2 ring-gold':'border-rule'}`} style={{backgroundColor:c}} aria-label={`Text color ${c}`}/>
+                    ))}
+                    <input type="color" className="h-9 w-12 cursor-pointer rounded-[4px] border border-rule" value={textColor} onChange={(e) => setTextColor(e.target.value)} />
+                  </div>
+                </label>
+                <button type="button" className={btnPrimary} onClick={() => {
+                  if (!textValue.trim()) return;
+                  const newItem: FlatItem = { id: `txt-${Date.now()}-${Math.random()}`, kind: 'text', text: textValue, font: textFont, size: textSize, color: textColor, x: 0.5, y: 0.5, scale: 1, rotationDeg: 0, opacity: 1 };
+                  setViews(prev => ({ ...prev, [activeView]: { items: [...prev[activeView].items, newItem] } }));
+                  setSelectedId(newItem.id);
+                  setTextForm(false);
+                }}>Add</button>
+              </div>
+            ) : null}
+            <FlatViewEditor
+              view={activeView}
+              items={views[activeView].items}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onChange={(items) => setViews(prev => ({ ...prev, [activeView]: { items } }))}
+            />
+          </Card>
+        </div>
         </div>
         <div className="min-w-0 space-y-4">
-          <div data-designer-anim>
-          <Card>
-            <h2 className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.22em] text-gold">Artwork — {ANCHOR_LABELS[anchor]}</h2>
-            <input type="file" accept={ACCEPT} multiple onChange={(e) => onFiles(e.target.files)} className="min-h-[44px] w-full rounded-[4px] border border-dashed border-rule bg-lacquer-deep px-3 py-2 text-sm text-warm file:mr-3 file:rounded-[4px] file:border-0 file:bg-graphite file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-gold hover:border-rule-strong" />
-            <p className="mt-2 text-xs text-faint">png / jpeg / svg, ≤10MB each. Each decal gets its own size. Reorder with ↑ ↓.</p>
-            <ul className="mt-3 space-y-2">
-              {zones[anchor].length === 0 ? <li className="rounded-[6px] border border-dashed border-rule px-3 py-8 text-center text-sm text-faint">No artwork in this zone yet — upload a file to see it on the shirt.</li> : null}
-              {zones[anchor].map((f) => (
-                <li key={f.key} className="rounded-[6px] border border-rule bg-lacquer-deep p-2.5">
-                  <div className="flex items-center gap-2">
-                    {f.preview || f.url ? (
-                      <img src={f.url ?? f.preview} alt={f.name} className="h-12 w-12 shrink-0 rounded-[4px] border border-rule bg-graphite object-contain" />
-                    ) : (
-                      <div className="h-12 w-12 shrink-0 rounded-[4px] border border-rule bg-graphite" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-champagne">{f.name}</div>
-                      <div className="text-xs text-muted">{f.url && !f.url.startsWith('data:') && !f.url.startsWith('blob:') ? 'uploaded' : f.file ? 'local — uploads on save' : 'linked'}</div>
-                    </div>
-                    <button type="button" className={btnSecondary} onClick={() => move(anchor, f.key, -1)} aria-label={`Move ${f.name} up`}>↑</button>
-                    <button type="button" className={btnSecondary} onClick={() => move(anchor, f.key, 1)} aria-label={`Move ${f.name} down`}>↓</button>
-                    <button type="button" className={btnDanger} onClick={() => removeAt(anchor, f.key)} aria-label={`Remove ${f.name}`}>
-                      Remove
-                    </button>
-                  </div>
-                  <label className="mt-2 block">
-                    <span className="mb-0.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-                      <span>Size on shirt</span>
-                      <span className="font-mono normal-case tracking-normal">{f.scale.toFixed(2)}</span>
-                    </span>
-                    <input
-                      type="range"
-                      min={0.04}
-                      max={0.25}
-                      step={0.01}
-                      value={f.scale}
-                      onChange={(e) => setScale(anchor, f.key, Number(e.target.value))}
-                      className="h-[36px] w-full cursor-pointer"
-                      aria-label={`Size for ${f.name}`}
-                    />
-                  </label>
-                </li>
-              ))}
-            </ul>
-            {totalArtworks === 0 ? (
-              <p className="mt-2 text-xs text-faint">Tip: start with Front · center — it maps to the classic chest print.</p>
-            ) : null}
-          </Card>
-          </div>
           <div data-designer-anim>
           <Card>
             <div className="grid gap-3 sm:grid-cols-2">

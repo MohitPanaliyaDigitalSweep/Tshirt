@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import ShirtViewer, { type DecalZone } from '../components/ShirtViewer';
+import ShirtViewer, { type View, type Views, type FlatItem } from '../components/ShirtViewer';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnSecondary, inputCls } from '../components/ui';
+import FlatViewEditor from '../components/FlatViewEditor';
 import {
   ApiError,
   ORDER_STATUSES,
@@ -47,7 +48,7 @@ export default function AdminOrderPage() {
   const [quotePrice, setQuotePrice] = useState('');
   const [quoteNote, setQuoteNote] = useState('');
   const [snap, setSnap] = useState<DesignSnapshot>({ zones: {} });
-  const [activeZone, setActiveZone] = useState<DecalZone>('front');
+  const [activeView, setActiveView] = useState<View>('front');
 
   const autoQty = useMemo(() => sizes.S + sizes.M + sizes.L + sizes.XL, [sizes]);
   useEffect(() => {
@@ -249,8 +250,14 @@ export default function AdminOrderPage() {
   if (loading) return <section className="mx-auto max-w-6xl p-6"><p className="text-sm text-muted">Loading…</p></section>;
   if (!order) return <section className="mx-auto max-w-6xl p-6"><ErrorBox message={error ?? 'Not found'} /></section>;
 
-  const artworks: Partial<Record<DecalZone, string[]>> = {};
-  for (const z of ZONES) artworks[z] = (snap.zones?.[z] ?? []).map((a) => a.url ?? a.preview ?? '').filter(Boolean);
+  const views: Views = snap.views
+    ? {
+        front: { items: (snap.views.front?.items ?? []) as FlatItem[] },
+        back: { items: (snap.views.back?.items ?? []) as FlatItem[] },
+        sleeveLeft: { items: (snap.views.sleeveLeft?.items ?? []) as FlatItem[] },
+        sleeveRight: { items: (snap.views.sleeveRight?.items ?? []) as FlatItem[] },
+      }
+    : { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
 
   return (
     <section className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -274,14 +281,17 @@ export default function AdminOrderPage() {
           </dl>
           <h2 className="mb-2 mt-4 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">3D preview</h2>
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {ZONES.map((z) => (
-              <button key={z} type="button" onClick={() => setActiveZone(z)} className={`min-h-[36px] rounded-[4px] border px-2 py-1 text-xs font-medium ${activeZone === z ? 'border-gold-deep bg-gold text-ink' : 'border-rule bg-graphite text-warm hover:border-rule-strong'}`}>
-                {z}
+            {(['front','back','sleeveLeft','sleeveRight'] as View[]).map((v) => (
+              <button key={v} type="button" onClick={() => setActiveView(v)} className={`min-h-[36px] rounded-[4px] border px-2 py-1 text-xs font-medium ${activeView === v ? 'border-gold-deep bg-gold text-ink' : 'border-rule bg-graphite text-warm hover:border-rule-strong'}`}>
+                {v}
               </button>
             ))}
           </div>
           <div className="h-64 overflow-hidden rounded-[4px] border border-rule">
-            <ShirtViewer zone={activeZone} color={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e5e7eb'} artworks={artworks} />
+            <ShirtViewer color={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e5e7eb'} views={views} />
+          </div>
+          <div className="mt-3">
+            <FlatViewEditor view={activeView} items={views[activeView].items} readOnly onChange={() => {}} />
           </div>
         </Card>
 
