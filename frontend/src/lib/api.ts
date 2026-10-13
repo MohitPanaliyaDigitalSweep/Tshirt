@@ -219,9 +219,18 @@ export interface ZoneArtworkRef {
 }
 
 export interface DesignSnapshot {
+  version?: number;
   color?: string | null;
   material_id?: number | null;
   zones?: Partial<Record<Zone, ZoneArtworkRef[]>>;
+  views?: {
+    front?: { items?: any[] };
+    back?: { items?: any[] };
+    sleeveLeft?: { items?: any[] };
+    sleeveRight?: { items?: any[] };
+  };
+  thumbs?: { front?: string; back?: string };
+  decals?: Array<any>;
   [k: string]: unknown;
 }
 
@@ -327,16 +336,59 @@ export function parseSizesToBreakdown(sizes: Order['sizes']): SizeBreakdown {
 }
 
 export function parseDesignSnapshot(ds: Order['design_snapshot']): DesignSnapshot {
-  if (!ds) return { zones: {} };
-  if (typeof ds === 'string') {
+  let parsed: any = ds;
+  if (!parsed) return { zones: {}, views: { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } }, version: 2 };
+  if (typeof parsed === 'string') {
     try {
-      const p = JSON.parse(ds) as DesignSnapshot;
-      return { zones: {}, ...p };
+      parsed = JSON.parse(parsed) as any;
     } catch {
-      return { zones: {} };
+      return { zones: {}, views: { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } }, version: 2 };
     }
   }
-  return { zones: {}, ...ds };
+  const base: any = { zones: {}, views: { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } }, ...parsed };
+  if (base.version !== 2 && parsed && (parsed.zones || parsed.decals)) {
+    // migrate v1
+    const views: any = { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
+    const decals = parsed.decals || [];
+    if (Array.isArray(decals) && decals.length > 0) {
+      for (const d of decals) {
+        const zone = (d.zone || 'front') as string;
+        const url = d.url;
+        if (!url) continue;
+        const item: any = {
+          id: `m-${Date.now()}-${Math.random()}`,
+          kind: 'image',
+          url,
+          x: 0.5,
+          y: 0.5,
+          scale: 1,
+          rotationDeg: 0,
+          opacity: 1,
+        };
+        if (zone === 'front') views.front.items.push(item);
+        if (zone === 'back') views.back.items.push(item);
+        if (zone === 'sleeve_left') views.sleeveLeft.items.push(item);
+        if (zone === 'sleeve_right') views.sleeveRight.items.push(item);
+      }
+    } else {
+      for (const z of ['front', 'back', 'sleeve_left', 'sleeve_right'] as const) {
+        const arr = parsed.zones?.[z] || [];
+        for (const a of arr) {
+          const url = a.url || a.preview;
+          if (!url) continue;
+          const item: any = { id: `m-${Date.now()}-${Math.random()}`, kind: 'image', url, x: 0.5, y: 0.5, scale: 1, rotationDeg: 0, opacity: 1 };
+          if (z === 'front') views.front.items.push(item);
+          if (z === 'sleeve_left') views.sleeveLeft.items.push(item);
+          if (z === 'sleeve_right') views.sleeveRight.items.push(item);
+          if (z === 'back') views.back.items.push(item);
+        }
+      }
+    }
+    base.views = views;
+    base.version = 2;
+  }
+  if (!base.views) base.views = { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
+  return base;
 }
 
 export function parseStringArray(v: unknown, fallback: string[] = []): string[] {

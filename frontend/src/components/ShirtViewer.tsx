@@ -1,40 +1,38 @@
-import { ContactShadows, OrbitControls, useGLTF, useTexture } from '@react-three/drei';
+import { ContactShadows, OrbitControls, useGLTF } from '@react-three/drei';
 import Interior from './Interior';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import gsap from 'gsap';
 import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 
-export type DecalZone = 'front' | 'back' | 'sleeve_left' | 'sleeve_right';
+export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
 
-/** Fine-grained print anchors. Each maps to one raycast against the shirt mesh. */
-export type DecalAnchorId =
-  | 'front-center'
-  | 'front-top-left'
-  | 'front-top-right'
-  | 'front-bottom'
-  | 'back-center'
-  | 'back-top'
-  | 'sleeve-left'
-  | 'sleeve-right';
+export interface FlatItem {
+  id: string | number;
+  kind: 'image' | 'text';
+  url?: string;
+  text?: string;
+  font?: string;
+  size?: number; // px at 1024
+  color?: string;
+  x: number; // 0..1 center
+  y: number; // 0..1 center
+  scale: number; // relative, 1 = 0.2 view width
+  rotationDeg: number;
+  opacity?: number;
+}
 
-export interface ShirtDecal {
-  zone: DecalZone;
-  url: string;
-  /** Fine anchor; defaults to the zone's primary anchor when omitted (back-compat). */
-  anchor?: DecalAnchorId;
-  /** Decal size in world units. Clamped to 0.04..0.25. */
-  scale?: number;
+export interface Views {
+  front: { items: FlatItem[] };
+  back: { items: FlatItem[] };
+  sleeveLeft: { items: FlatItem[] };
+  sleeveRight: { items: FlatItem[] };
 }
 
 interface ShirtViewerProps {
-  /** Active/selected zone (legacy). Kept for compat; all zones render. */
-  zone?: DecalZone;
   color?: string;
-  /** Legacy per-zone artwork URLs. Used when `decals` is omitted. */
-  artworks?: Partial<Record<DecalZone, string[]>>;
-  /** Preferred decal list: one entry per artwork, placed by anchor. */
-  decals?: ShirtDecal[];
+  /** Live flat-editor state for embedded prints */
+  views?: Views;
   /** Wind flutter amount 0..1. Default 0.35. */
   wind?: number;
   /** Fabric swing multiplier. Default 1. */
@@ -43,7 +41,7 @@ interface ShirtViewerProps {
   autoRotate?: boolean;
   /** OrbitControls auto-rotate speed. Default 1.0. */
   autoRotateSpeed?: number;
-  /** Extra classes merged into the container (which carries its own default height). */
+  /** Extra classes merged into the container */
   className?: string;
 }
 
@@ -57,244 +55,18 @@ const MODEL_BOUNDS = {
 const MODEL_CENTER = MODEL_BOUNDS.min.clone().add(MODEL_BOUNDS.max).multiplyScalar(0.5);
 const MODEL_SIZE = MODEL_BOUNDS.max.clone().sub(MODEL_BOUNDS.min);
 
-interface RayDef {
-  origin: [number, number, number];
-  dir: [number, number, number];
-  fallback: { position: [number, number, number]; rotation: [number, number, number] };
-}
-
-/** One ray per anchor, cast from outside the mesh toward its center axis. */
-const RAY_DEFS: Record<DecalAnchorId, RayDef> = {
-  'front-center': { origin: [0, 0.05, 1], dir: [0, 0, -1], fallback: { position: [0, 0.04, 0.15], rotation: [0, 0, 0] } },
-  'front-top-left': { origin: [-0.12, 0.16, 1], dir: [0, 0, -1], fallback: { position: [-0.11, 0.15, 0.13], rotation: [0, 0, 0] } },
-  'front-top-right': { origin: [0.12, 0.16, 1], dir: [0, 0, -1], fallback: { position: [0.11, 0.15, 0.13], rotation: [0, 0, 0] } },
-  'front-bottom': { origin: [0, -0.12, 1], dir: [0, 0, -1], fallback: { position: [0, -0.13, 0.14], rotation: [0, 0, 0] } },
-  'back-center': { origin: [0, 0.05, -1], dir: [0, 0, 1], fallback: { position: [0, 0.04, -0.135], rotation: [0, Math.PI, 0] } },
-  'back-top': { origin: [0, 0.16, -1], dir: [0, 0, 1], fallback: { position: [0, 0.15, -0.12], rotation: [0, Math.PI, 0] } },
-  'sleeve-left': { origin: [-1, 0.1, 0.02], dir: [1, 0, 0], fallback: { position: [-0.245, 0.1, 0.02], rotation: [0, -Math.PI / 2, 0] } },
-  'sleeve-right': { origin: [1, 0.1, 0.02], dir: [-1, 0, 0], fallback: { position: [0.245, 0.1, 0.02], rotation: [0, Math.PI / 2, 0] } },
-};
-
-export const ANCHOR_IDS: DecalAnchorId[] = [
-  'front-center',
-  'front-top-left',
-  'front-top-right',
-  'front-bottom',
-  'back-center',
-  'back-top',
-  'sleeve-left',
-  'sleeve-right',
-];
-
-/** Legacy 4-zone -> primary anchor (back-compat for old snapshots/assets). */
-export const DEFAULT_ANCHOR_FOR_ZONE: Record<DecalZone, DecalAnchorId> = {
-  front: 'front-center',
-  back: 'back-center',
-  sleeve_left: 'sleeve-left',
-  sleeve_right: 'sleeve-right',
-};
-
-const ANCHOR_DEFAULT_SCALE: Record<DecalAnchorId, number> = {
-  'front-center': 0.13,
-  'front-top-left': 0.09,
-  'front-top-right': 0.09,
-  'front-bottom': 0.11,
-  'back-center': 0.13,
-  'back-top': 0.1,
-  'sleeve-left': 0.075,
-  'sleeve-right': 0.075,
-};
-
-export function clampDecalScale(s: number | undefined, fallback: number): number {
-  const v = typeof s === 'number' && Number.isFinite(s) ? s : fallback;
-  return Math.min(0.25, Math.max(0.04, v));
-}
-
-interface ResolvedAnchor {
-  position: THREE.Vector3;
-  normal: THREE.Vector3;
-  quaternion: THREE.Quaternion;
-  /** True when the ray hit the mesh; false = legacy coordinate fallback. */
-  hit: boolean;
-}
-
-export type ResolvedAnchors = Record<DecalAnchorId, ResolvedAnchor>;
-
-const Z_UP = new THREE.Vector3(0, 0, 1);
-
-function fallbackAnchor(id: DecalAnchorId): ResolvedAnchor {
-  const f = RAY_DEFS[id].fallback;
-  const q = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(f.rotation[0], f.rotation[1], f.rotation[2]),
-  );
-  const n = Z_UP.clone().applyQuaternion(q);
-  return { position: new THREE.Vector3(...f.position), normal: n, quaternion: q, hit: false };
-}
-
-/** Casts the 8 anchor rays once the model is loaded; falls back to legacy coords on a miss. */
-function AnchorResolver({ onResolve }: { onResolve: (a: ResolvedAnchors) => void }) {
-  const { nodes } = useGLTF(MODEL_URL) as unknown as { nodes: Record<string, THREE.Mesh> };
-  const done = useRef(false);
-
-  useEffect(() => {
-    if (done.current) return;
-    done.current = true;
-    const mesh = nodes?.['T_Shirt_male'] as THREE.Mesh | undefined;
-    const out = {} as ResolvedAnchors;
-    if (!mesh?.geometry) {
-      for (const id of ANCHOR_IDS) out[id] = fallbackAnchor(id);
-      onResolve(out);
-      return;
-    }
-    mesh.updateWorldMatrix(true, false);
-    const ray = new THREE.Raycaster();
-    ray.far = 10;
-    for (const id of ANCHOR_IDS) {
-      const def = RAY_DEFS[id];
-      ray.set(
-        new THREE.Vector3(...def.origin),
-        new THREE.Vector3(...def.dir).normalize(),
-      );
-      const hits = ray.intersectObject(mesh, false);
-      const hit = hits[0];
-      if (hit && hit.face) {
-        const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-        const position = hit.point.clone().addScaledVector(normal, 0.003);
-        const quaternion = new THREE.Quaternion().setFromUnitVectors(Z_UP, normal);
-        out[id] = { position, normal, quaternion, hit: true };
-      } else {
-        out[id] = fallbackAnchor(id);
-      }
-    }
-    onResolve(out);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes]);
-
-  return null;
-}
-
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-function DecalTextures({ decals, anchors }: { decals: ShirtDecal[]; anchors: ResolvedAnchors | null }) {
-  const urls = decals.map((d) => d.url);
-  const textures = useTexture(urls) as THREE.Texture[];
-  const list = Array.isArray(textures) ? textures : [textures];
+type ControlsLike = {
+  getAzimuthalAngle(): number;
+  getPolarAngle(): number;
+  target: THREE.Vector3;
+  update(): void;
+};
 
-  useEffect(() => {
-    for (const t of list) {
-      if (!t) continue;
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.anisotropy = 4;
-      t.needsUpdate = true;
-    }
-  }, [list]);
-
-  // Count per anchor so stacked decals offset outward slightly.
-  const counts: Record<DecalAnchorId, number> = {
-    'front-center': 0,
-    'front-top-left': 0,
-    'front-top-right': 0,
-    'front-bottom': 0,
-    'back-center': 0,
-    'back-top': 0,
-    'sleeve-left': 0,
-    'sleeve-right': 0,
-  };
-
-  return (
-    <group>
-      {decals.map((d, i) => {
-        const tex = list[i];
-        if (!tex) return null;
-        const anchorId = d.anchor ?? DEFAULT_ANCHOR_FOR_ZONE[d.zone];
-        const a = anchors?.[anchorId] ?? fallbackAnchor(anchorId);
-        const k = counts[anchorId]++;
-        const pos = a.position.clone().addScaledVector(a.normal, k * 0.0018);
-        const scale = clampDecalScale(d.scale, ANCHOR_DEFAULT_SCALE[anchorId]);
-        return (
-          <mesh key={`${anchorId}-${d.url}-${i}`} position={pos} quaternion={a.quaternion}>
-            <planeGeometry args={[scale, scale]} />
-            <meshBasicMaterial
-              map={tex}
-              transparent
-              toneMapped={false}
-              side={THREE.DoubleSide}
-              polygonOffset
-              polygonOffsetFactor={-2}
-              polygonOffsetUnits={-2}
-            />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
-function ShirtMesh({
-  color,
-  uniforms,
-}: {
-  color: string;
-  uniforms: {
-    uSwing: { value: THREE.Vector2 };
-    uTime: { value: number };
-    uWind: { value: number };
-  };
-}) {
-  const { nodes } = useGLTF(MODEL_URL) as unknown as { nodes: Record<string, THREE.Mesh> };
-  const geometry = nodes?.['T_Shirt_male']?.geometry;
-
-  const material = useMemo(() => {
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(color),
-      roughness: 0.85,
-      metalness: 0,
-      sheen: 1,
-      sheenRoughness: 0.5,
-      sheenColor: new THREE.Color('#ffffff'),
-    });
-    mat.onBeforeCompile = (shader: {
-      uniforms: Record<string, THREE.IUniform>;
-      vertexShader: string;
-    }) => {
-      shader.uniforms['uSwing'] = uniforms.uSwing;
-      shader.uniforms['uTime'] = uniforms.uTime;
-      shader.uniforms['uWind'] = uniforms.uWind;
-      shader.vertexShader =
-        'uniform vec2 uSwing;\nuniform float uTime;\nuniform float uWind;\n' +
-        shader.vertexShader.replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-          float swingW = pow(clamp((0.05 - position.y) / 0.45, 0.0, 1.0), 1.4);
-          transformed.x += uSwing.x * swingW;
-          transformed.z += uSwing.y * swingW;
-          transformed.y -= length(uSwing) * 0.35 * swingW
-            + sin(uTime * 14.0 + position.y * 22.0 + position.x * 15.0) * 0.006 * uWind * swingW
-            + sin(uTime * 1.8 + position.x * 4.0) * 0.003 * swingW;`,
-        );
-    };
-    mat.customProgramCacheKey = () => 'shirt-fabric-swing-v1';
-    return mat;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    material.color.set(color);
-  }, [material, color]);
-
-  useEffect(() => {
-    return () => {
-      material.dispose();
-    };
-  }, [material]);
-
-  if (!geometry) return null;
-  return <mesh geometry={geometry} material={material} castShadow receiveShadow />;
-}
-
-/** Camera angular-velocity -> spring-damper fabric swing (stiffness 60, damping 6, clamp 0.05). */
+/** Camera angular-velocity -> spring-damper fabric swing */
 function SwingDriver({
   uniforms,
   controlsRef,
@@ -306,7 +78,7 @@ function SwingDriver({
     uTime: { value: number };
     uWind: { value: number };
   };
-  controlsRef: React.RefObject<{ getAzimuthalAngle(): number; getPolarAngle(): number } | null>;
+  controlsRef: React.RefObject<ControlsLike | null>;
   wind: number;
   strength: number;
 }) {
@@ -363,7 +135,6 @@ function SwingDriver({
   return null;
 }
 
-/** Distance that fits the whole shirt (with margin) for the current viewport aspect. */
 function fitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
   const vFov = THREE.MathUtils.degToRad(fovDeg);
   const fitH = MODEL_SIZE.y / 2 / Math.tan(vFov / 2);
@@ -372,14 +143,6 @@ function fitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
   return Math.max(fitH, fitW, MODEL_SIZE.z) * margin;
 }
 
-type ControlsLike = {
-  getAzimuthalAngle(): number;
-  getPolarAngle(): number;
-  target: THREE.Vector3;
-  update(): void;
-};
-
-/** Fits the camera to the model bounds on mount/resize; GSAP dolly-in on first mount. */
 function FitRig({ controlsRef }: { controlsRef: React.RefObject<ControlsLike | null> }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -442,10 +205,282 @@ class ViewerErrorBoundary extends Component<{ children: ReactNode }, { error: st
   }
 }
 
+/** Create offscreen canvases and render views to textures */
+function createPrintRenderer() {
+  const canvasF = document.createElement('canvas');
+  const canvasB = document.createElement('canvas');
+  const canvasSL = document.createElement('canvas');
+  const canvasSR = document.createElement('canvas');
+  canvasF.width = canvasF.height = 1024;
+  canvasB.width = canvasB.height = 1024;
+  canvasSL.width = canvasSL.height = 512;
+  canvasSR.width = canvasSR.height = 512;
+
+  const ctxF = canvasF.getContext('2d');
+  const ctxB = canvasB.getContext('2d');
+  const ctxSL = canvasSL.getContext('2d');
+  const ctxSR = canvasSR.getContext('2d');
+
+  const texF = new THREE.CanvasTexture(canvasF);
+  const texB = new THREE.CanvasTexture(canvasB);
+  const texSL = new THREE.CanvasTexture(canvasSL);
+  const texSR = new THREE.CanvasTexture(canvasSR);
+
+  const textures = [texF, texB, texSL, texSR];
+  textures.forEach((t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    t.wrapS = t.wrapT = THREE.ClampToEdge;
+    t.generateMipmaps = false;
+  });
+
+  const render = (views?: Views) => {
+    const viewsSafe = views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
+
+    // Clear canvases (transparent)
+    [ctxF, ctxB, ctxSL, ctxSR].forEach((ctx) => {
+      if (!ctx) return;
+      const c = ctx.canvas;
+      ctx.clearRect(0, 0, c.width, c.height);
+    });
+
+    const drawItems = (ctx: CanvasRenderingContext2D | null, items: FlatItem[], isFront: boolean) => {
+      if (!ctx) return;
+      const W = ctx.canvas.width;
+      const H = ctx.canvas.height;
+      const viewWidth = 0.4 * W; // 1 = 0.2 view width relative? spec says 1 = 0.2 view width - scale relative
+      items.forEach((item) => {
+        ctx.save();
+        const cx = item.x * W;
+        const cy = item.y * H;
+        ctx.translate(cx, cy);
+        ctx.rotate(((item.rotationDeg ?? 0) * Math.PI) / 180);
+        const scale = (item.scale ?? 1) * (viewWidth / 0.2); // interpret: relative 1 means 0.2 view width? spec: "scale (relative, 1 = 0.2 view width)"
+        const s = scale * 0.2; // simpler: treat as factor relative to 20% width
+        // Better interpretation: scale relative, 1 = 0.2 of view width at 1024 base
+        const relScale = item.scale ?? 1;
+        const boxW = (0.2 * W) * relScale;
+        const boxH = boxW; // base square for contain-fit sizing
+        ctx.globalAlpha = item.opacity ?? 1;
+        if (item.kind === 'image' && item.url) {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          try {
+            img.src = item.url;
+            // draw if loaded; if not, skip broken silently
+            if (img.complete && img.naturalWidth > 0) {
+              const iw = img.naturalWidth;
+              const ih = img.naturalHeight;
+              const ratio = Math.min(boxW / iw, boxH / ih);
+              const dw = iw * ratio;
+              const dh = ih * ratio;
+              ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+            }
+          } catch {
+            // skip silently
+          }
+        } else if (item.kind === 'text' && item.text) {
+          const fontSize = item.size ?? 60;
+          const fontFam = item.font || 'Inter';
+          ctx.font = `600 ${fontSize}px ${fontFam}`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = item.color || '#ffffff';
+          ctx.fillText(item.text, 0, 0);
+        }
+        ctx.restore();
+      });
+    };
+
+    drawItems(ctxF, viewsSafe.front.items, true);
+    drawItems(ctxB, viewsSafe.back.items, false);
+    drawItems(ctxSL, viewsSafe.sleeveLeft.items, false);
+    drawItems(ctxSR, viewsSafe.sleeveRight.items, false);
+
+    texF.needsUpdate = true;
+    texB.needsUpdate = true;
+    texSL.needsUpdate = true;
+    texSR.needsUpdate = true;
+  };
+
+  const hasContent = (views?: Views) => {
+    const v = views;
+    if (!v) return [0, 0, 0, 0];
+    return [
+      v.front.items.length > 0 ? 1 : 0,
+      v.back.items.length > 0 ? 1 : 0,
+      v.sleeveLeft.items.length > 0 ? 1 : 0,
+      v.sleeveRight.items.length > 0 ? 1 : 0,
+    ];
+  };
+
+  return { canvasF, canvasB, canvasSL, canvasSR, texF, texB, texSL, texSR, render, hasContent };
+}
+
+function ShirtMesh({
+  color,
+  uniforms,
+}: {
+  color: string;
+  uniforms: {
+    uSwing: { value: THREE.Vector2 };
+    uTime: { value: number };
+    uWind: { value: number };
+    uPrintMap: { value: THREE.Texture[] };
+    uPrintOn: { value: number[] };
+  };
+}) {
+  const { nodes } = useGLTF(MODEL_URL) as unknown as { nodes: Record<string, THREE.Mesh> };
+  const geometry = nodes?.['T_Shirt_male']?.geometry;
+
+  const material = useMemo(() => {
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(color),
+      roughness: 0.85,
+      metalness: 0,
+      sheen: 1,
+      sheenRoughness: 0.5,
+      sheenColor: new THREE.Color('#ffffff'),
+    });
+    mat.onBeforeCompile = (shader: {
+      uniforms: Record<string, THREE.IUniform>;
+      vertexShader: string;
+      fragmentShader: string;
+    }) => {
+      shader.uniforms['uSwing'] = uniforms.uSwing;
+      shader.uniforms['uTime'] = uniforms.uTime;
+      shader.uniforms['uWind'] = uniforms.uWind;
+      shader.uniforms['uPrintMap'] = uniforms.uPrintMap;
+      shader.uniforms['uPrintOn'] = uniforms.uPrintOn;
+
+      // Vertex: add swing
+      shader.vertexShader =
+        'uniform vec2 uSwing;\nuniform float uTime;\nuniform float uWind;\n' +
+        shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          float swingW = pow(clamp((0.05 - position.y) / 0.45, 0.0, 1.0), 1.4);
+          transformed.x += uSwing.x * swingW;
+          transformed.z += uSwing.y * swingW;
+          transformed.y -= length(uSwing) * 0.35 * swingW
+            + sin(uTime * 14.0 + position.y * 22.0 + position.x * 15.0) * 0.006 * uWind * swingW
+            + sin(uTime * 1.8 + position.x * 4.0) * 0.003 * swingW;`,
+        );
+
+      // Fragment: projectors
+      const projectorChunk = `
+uniform sampler2D uPrintMap[4];
+uniform float uPrintOn[4];
+varying vec3 vWorldPosition;
+varying vec3 vWorldNormal;
+
+// rex(v,[a,b]) = (v-a)/(b-a)
+float rex(float v, float a, float b) {
+  return (v - a) / (b - a);
+}
+vec2 clampEdge(vec2 uv) {
+  return clamp(uv, 0.01, 0.99);
+}
+`;
+      const before = '#include <common>';
+      shader.fragmentShader = shader.fragmentShader.replace(before, before + projectorChunk);
+
+      const mixChunk = `
+vec4 printColor = vec4(0.0);
+vec3 P = vWorldPosition;
+vec3 N = normalize(vWorldNormal);
+vec3 V = normalize(cameraPosition - P);
+
+// front: axis +z; u = rex(x,[-0.276,0.274]), v = rex(y,[-0.352,0.261])
+if (uPrintOn[0] > 0.5) {
+  vec2 uvFront = vec2(rex(P.x, -0.276, 0.274), rex(P.y, -0.352, 0.261));
+  if (uvFront.x >= 0.0 && uvFront.x <= 1.0 && uvFront.y >= 0.0 && uvFront.y <= 1.0) {
+    float mask = 1.0;
+    // feather edges via smoothstep 2%
+    float fe = 0.02;
+    mask *= smoothstep(0.0, fe, uvFront.x) * smoothstep(1.0, 1.0-fe, uvFront.x);
+    mask *= smoothstep(0.0, fe, uvFront.y) * smoothstep(1.0, 1.0-fe, uvFront.y);
+    // single-sided: dot(normal, projectorDirView) > 0.25; projector dir for front is +z in view space? approx using world +z
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,1.0)));
+    if (mask > 0.0) {
+      vec4 c = texture2D(uPrintMap[0], clampEdge(uvFront));
+      printColor = mix(printColor, c, c.a * mask);
+    }
+  }
+}
+// back: axis -z; u mirrored so right-on-fabric = uv.x=1-u
+if (uPrintOn[1] > 0.5) {
+  vec2 uvBack = vec2(rex(P.x, -0.276, 0.274), rex(P.y, -0.352, 0.261));
+  uvBack.x = 1.0 - uvBack.x;
+  if (uvBack.x >= 0.0 && uvBack.x <= 1.0 && uvBack.y >= 0.0 && uvBack.y <= 1.0) {
+    float mask = 1.0;
+    float fe = 0.02;
+    mask *= smoothstep(0.0, fe, uvBack.x) * smoothstep(1.0, 1.0-fe, uvBack.x);
+    mask *= smoothstep(0.0, fe, uvBack.y) * smoothstep(1.0, 1.0-fe, uvBack.y);
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,-1.0)));
+    if (mask > 0.0) {
+      vec4 c = texture2D(uPrintMap[1], clampEdge(uvBack));
+      printColor = mix(printColor, c, c.a * mask);
+    }
+  }
+}
+// sleeveLeft: axis -x; u = rex(z,[-0.125,0.144]), v = rex(y,[-0.05,0.26])
+if (uPrintOn[2] > 0.5) {
+  vec2 uvL = vec2(rex(P.z, -0.125, 0.144), rex(P.y, -0.05, 0.26));
+  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0) {
+    float mask = 1.0;
+    float fe = 0.02;
+    mask *= smoothstep(0.0, fe, uvL.x) * smoothstep(1.0, 1.0-fe, uvL.x);
+    mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(-1.0,0.0,0.0)));
+    if (mask > 0.0) {
+      vec4 c = texture2D(uPrintMap[2], clampEdge(uvL));
+      printColor = mix(printColor, c, c.a * mask);
+    }
+  }
+}
+// sleeveRight: axis +x; u mirrored
+if (uPrintOn[3] > 0.5) {
+  vec2 uvR = vec2(rex(P.z, -0.125, 0.144), rex(P.y, -0.05, 0.26));
+  uvR.x = 1.0 - uvR.x;
+  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0) {
+    float mask = 1.0;
+    float fe = 0.02;
+    mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
+    mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(1.0,0.0,0.0)));
+    if (mask > 0.0) {
+      vec4 c = texture2D(uPrintMap[3], clampEdge(uvR));
+      printColor = mix(printColor, c, c.a * mask);
+    }
+  }
+}
+diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
+`;
+      const diffuse = '#include <map_fragment>';
+      shader.fragmentShader = shader.fragmentShader.replace(diffuse, mixChunk + diffuse);
+    };
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v1';
+    return mat;
+  }, []);
+
+  useEffect(() => {
+    material.color.set(color);
+  }, [material, color]);
+
+  useEffect(() => {
+    return () => {
+      material.dispose();
+    };
+  }, [material]);
+
+  if (!geometry) return null;
+  return <mesh geometry={geometry} material={material} castShadow receiveShadow />;
+}
+
 export default function ShirtViewer({
   color = '#e5e7eb',
-  artworks,
-  decals,
+  views,
   wind = 0.35,
   swingStrength = 1,
   autoRotate = true,
@@ -454,31 +489,51 @@ export default function ShirtViewer({
 }: ShirtViewerProps) {
   const controlsRef = useRef<ControlsLike | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [anchors, setAnchors] = useState<ResolvedAnchors | null>(null);
+  const rendererRef = useRef<ReturnType<typeof createPrintRenderer> | null>(null);
 
   const uniforms = useMemo(
     () => ({
       uSwing: { value: new THREE.Vector2(0, 0) },
       uTime: { value: 0 },
       uWind: { value: clamp(wind, 0, 1) },
+      uPrintMap: { value: [] as THREE.Texture[] },
+      uPrintOn: { value: [0, 0, 0, 0] as number[] },
     }),
-    // Shared uniform objects live for the component lifetime; wind syncs per-frame.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
-  const effectiveDecals: ShirtDecal[] = useMemo(() => {
-    if (decals) return decals.filter((d) => d && d.url);
-    const out: ShirtDecal[] = [];
-    if (artworks) {
-      for (const z of Object.keys(artworks) as DecalZone[]) {
-        for (const url of artworks[z] ?? []) {
-          if (url) out.push({ zone: z, url });
-        }
+  // Initialize renderer once
+  useEffect(() => {
+    rendererRef.current = createPrintRenderer();
+    return () => {
+      const r = rendererRef.current;
+      if (r) {
+        [r.texF, r.texB, r.texSL, r.texSR].forEach((t) => t.dispose());
       }
-    }
-    return out;
-  }, [decals, artworks]);
+    };
+  }, []);
+
+  // Update uniforms when renderer ready
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    uniforms.uPrintMap.value = [r.texF, r.texB, r.texSL, r.texSR];
+  }, [uniforms]);
+
+  // Throttle re-bake textures
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    const has = r.hasContent(views);
+    uniforms.uPrintOn.value = has;
+    let timer: number | null = null;
+    timer = window.setTimeout(() => {
+      r.render(views);
+    }, 150);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [views, uniforms]);
 
   useEffect(() => {
     const el = overlayRef.current;
@@ -510,8 +565,6 @@ export default function ShirtViewer({
           gl={{ preserveDrawingBuffer: true, antialias: true }}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
         >
-          {/* Interior lighting: low warm ambient + key directional for the shirt.
-              The practical strip/spot lives inside <Interior />. */}
           <ambientLight intensity={0.35} />
           <directionalLight
             position={[1.4, 1.8, 1.6]}
@@ -524,11 +577,9 @@ export default function ShirtViewer({
           <Interior />
           <Suspense fallback={null}>
             <ShirtMesh color={color} uniforms={uniforms} />
-            <AnchorResolver onResolve={setAnchors} />
-            {effectiveDecals.length > 0 ? <DecalTextures decals={effectiveDecals} anchors={anchors} /> : null}
           </Suspense>
           <ContactShadows
-            position={[0, -0.348, 0.1]} // just above rug top (rug top = -0.35 + z 0.1 center)
+            position={[0, -0.348, 0.1]}
             opacity={0.55}
             scale={2}
             blur={2.4}
@@ -543,7 +594,7 @@ export default function ShirtViewer({
             enableDamping
             target={[MODEL_CENTER.x, MODEL_CENTER.y, MODEL_CENTER.z]}
             minDistance={0.6}
-            maxDistance={2.8} // keep the room intimate; back wall at z=-2.5 stays in frame
+            maxDistance={2.8}
             maxPolarAngle={1.65}
             autoRotate={autoRotate}
             autoRotateSpeed={autoRotateSpeed}
@@ -557,15 +608,6 @@ export default function ShirtViewer({
           <FitRig controlsRef={controlsRef} />
         </Canvas>
       </ViewerErrorBoundary>
-      {anchors ? null : (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-label="Loading 3D model">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-28 w-40 animate-pulse rounded-[6px] bg-graphite2/70" />
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted">Loading 3D model…</p>
-          </div>
-        </div>
-      )}
-      {/* Post-style vignette without a postprocessing lib: pure CSS radial gradient. */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.25))' }}

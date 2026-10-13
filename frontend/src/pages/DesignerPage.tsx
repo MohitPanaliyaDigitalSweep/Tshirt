@@ -1,14 +1,8 @@
 import gsap from 'gsap';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import ShirtViewer, {
-  ANCHOR_IDS,
-  DEFAULT_ANCHOR_FOR_ZONE,
-  clampDecalScale,
-  type DecalAnchorId,
-  type DecalZone,
-  type ShirtDecal,
-} from '../components/ShirtViewer';
+import ShirtViewer, { type View, type Views, type FlatItem } from '../components/ShirtViewer';
+import FlatViewEditor from '../components/FlatViewEditor';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnSecondary, inputCls } from '../components/ui';
 import {
   ApiError,
@@ -116,14 +110,14 @@ export default function DesignerPage() {
   const editId = params.get('order');
   const sectionRef = useRef<HTMLElement>(null);
 
-  const [anchor, setAnchor] = useState<DecalAnchorId>('front-center');
+  const [activeView, setActiveView] = useState<View>('front');
   const [materials, setMaterials] = useState<Material[]>([]);
   const [matError, setMatError] = useState<string | null>(null);
   const [materialId, setMaterialId] = useState<number | null>(null);
   const [color, setColor] = useState('#e5e7eb');
   const [sizes, setSizes] = useState<SizeBreakdown>({ S: 0, M: 10, L: 0, XL: 0 });
   const [note, setNote] = useState('');
-  const [zones, setZones] = useState<AnchorMap>(EMPTY_ANCHORS);
+  const [views, setViews] = useState<Views>({ front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } });
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,6 +127,12 @@ export default function DesignerPage() {
   const [windDefault, setWindDefault] = useState(SETTINGS_DEFAULTS.fabric_wind);
   const [swingStrength, setSwingStrength] = useState(SETTINGS_DEFAULTS.swing_strength ?? 1);
   const [autorotateSpeed, setAutorotateSpeed] = useState(SETTINGS_DEFAULTS.autorotate_speed);
+  const [textForm, setTextForm] = useState(false);
+  const [textValue, setTextValue] = useState('Cricket Tshirts');
+  const [textFont, setTextFont] = useState('Inter');
+  const [textSize, setTextSize] = useState(60);
+  const [textColor, setTextColor] = useState('#ffffff');
+  const [selectedId, setSelectedId] = useState<string|number|null>(null);
 
   const qty = useMemo(() => sizes.S + sizes.M + sizes.L + sizes.XL, [sizes]);
 
@@ -194,38 +194,7 @@ export default function DesignerPage() {
         setNote(o.customer_note ?? '');
         const snap = parseDesignSnapshot(o.design_snapshot);
         if (snap.color) setColor(snap.color);
-        const next = emptyAnchors();
-        const detailed = (snap as { decals?: Array<{ url?: string | null; name?: string | null; file_type?: string | null; zone?: DecalZone | null; anchor?: DecalAnchorId | null; scale?: number | null }> }).decals;
-        if (Array.isArray(detailed) && detailed.length > 0) {
-          for (const a of detailed) {
-            const z = (a.zone ?? 'front') as DecalZone;
-            const an: DecalAnchorId = a.anchor && ANCHOR_IDS.includes(a.anchor) ? a.anchor : (DEFAULT_ANCHOR_FOR_ZONE[z] ?? 'front-center');
-            next[an].push({
-              key: nextKey(),
-              name: a.name ?? 'artwork',
-              preview: a.url ?? '',
-              file: null,
-              url: a.url ?? undefined,
-              file_type: a.file_type ?? undefined,
-              scale: clampDecalScale(a.scale ?? undefined, 0.12),
-            });
-          }
-        } else {
-          for (const z of ZONES) {
-            const arr = snap.zones?.[z] ?? [];
-            const an = DEFAULT_ANCHOR_FOR_ZONE[z];
-            next[an] = arr.map((a) => ({
-              key: nextKey(),
-              name: a.name ?? 'artwork',
-              preview: a.url ?? a.preview ?? '',
-              file: null,
-              url: a.url ?? undefined,
-              file_type: a.file_type ?? undefined,
-              scale: 0.12,
-            }));
-          }
-        }
-        setZones(next);
+        setViews(snap.views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } });
         setInfo(`Editing order #${o.id} (${o.status ?? 'draft'}).`);
       } catch (e) {
         if (alive) setError(e instanceof ApiError ? e.message : 'Could not load order for editing');
