@@ -1,0 +1,13 @@
+{
+  "name": "tshirt-studio",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [5150, 5173],
+  "customizations": { "vscode": { "extensions": ["rust-lang.rust-analyzer", "dbaeumer.vscode-eslint"] } }
+}

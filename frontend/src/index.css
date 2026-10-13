@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* Neo kinpaku tokens — mirrors ~/.config/opencode/skills/impeccable/DESIGN.md */
+@theme {
+  /* Brand anchors */
+  --color-gold: oklch(84% 0.19 80.46);
+  --color-gold-pale: oklch(86% 0.07 84);
+  --color-gold-rich: oklch(77% 0.13 82);
+  --color-gold-deep: oklch(61% 0.085 78);
+  --color-patina: oklch(70% 0.12 188);
+  --color-patina-pale: oklch(82% 0.07 188);
+  --color-patina-deep: oklch(49% 0.08 188);
+  --color-ink: oklch(14% 0.018 95);
+
+  /* Surfaces */
+  --color-lacquer: oklch(7% 0.006 95);
+  --color-lacquer-deep: oklch(4% 0.004 95);
+  --color-raised: oklch(11% 0.006 95);
+  --color-graphite: oklch(15% 0.008 95);
+  --color-graphite2: oklch(19% 0.008 95);
+
+  /* Text ramp */
+  --color-champagne: oklch(91% 0 0);
+  --color-warm: oklch(88% 0 0);
+  --color-muted: oklch(72% 0 0);
+  --color-faint: oklch(62% 0 0);
+  --color-mutedeep: oklch(52% 0 0);
+
+  /* State */
+  --color-vermilion: oklch(58% 0.15 35);
+  --color-vermilion-deep: oklch(52% 0.16 35);
+  --color-success: oklch(58% 0.14 145);
+
+  /* Rules */
+  --color-rule: oklch(78% 0 0 / 0.16);
+  --color-rule-strong: oklch(74% 0.09 82 / 0.6);
+  --color-rule-patina: oklch(70% 0.105 190 / 0.45);
+
+  /* Type */
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --radius-card: 6px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-lacquer);
+  color: var(--color-warm);
+  font-family: var(--font-body);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: oklch(74% 0.09 82 / 0.35);
+  color: var(--color-champagne);
+}
+
+input[type="range"] {
+  accent-color: var(--color-gold);
+}
+
+input[type="color"] {
+  background: var(--color-graphite);
+  border-color: var(--color-rule);
+}
+
+/* Visible gold focus ring everywhere */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Thin lacquer scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-graphite2) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
