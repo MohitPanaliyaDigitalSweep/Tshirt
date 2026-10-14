@@ -426,9 +426,9 @@ if (uPrintOn[1] > 0.5) {
 //               u MIRRORED (1-u) so text reads correctly viewed from outside-left.
 //   Right (-x): v = rex(P.x, -0.27, -0.18) (tip -0.27 -> seam -0.18),
 //               u unmirrored (reads correctly viewed from outside-right).
-//   Preset placement in the new window (canvas y 0=top, v = 1-y):
-//     Logo (0.5, 0.30) -> v=0.70 -> x = 0.27-0.70*0.09 = 0.207 (outer-upper arm)
-//     Strip (0.5, 0.55) -> v=0.45 -> x = 0.27-0.45*0.09 = 0.230 (outer arm center)
+//   Preset placement (R-065, canvas y 0=top, v = 1-y):
+//     Logo (0.5, 0.62) -> v=0.38 -> x = 0.27-0.38*0.09 = 0.236 (mid-outer arm, ~1-2in above hem)
+//     Strip (0.5, 0.585) -> v=0.415 -> x = 0.27-0.415*0.09 = 0.233 (outer arm center)
 //   Angular window: full strength at top, feathered out by ~90deg (keeps print
 //   off the underside/armpit while covering top + upper sides).
 //   Normal gate: radial outward + kill straight-down fragments (N.y) to keep
@@ -488,7 +488,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
       const diffuse = '#include <color_fragment>';
       shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
-    mat.customProgramCacheKey = () => 'shirt-embedded-print-v5-sleeve-front-face';
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v6-sleeve-outer-arm-r065';
     return mat;
   }, []);
 

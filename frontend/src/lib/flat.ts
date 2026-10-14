@@ -386,24 +386,24 @@ function drawSleevePanel(ctx: CanvasRenderingContext2D, W: number, H: number): v
   ctx.fillText('cuff', X(cx), Y(botY + 0.045));
   ctx.restore();
 
-  // upper logo zone marker: small dashed box top-center ~25% height
+  // R-065: subtle print-zone band highlighting sweet spot y 0.50-0.75.
   ctx.save();
-  const zoneH = 0.25;
-  const zoneY0 = topY + 0.03;
-  ctx.strokeStyle = '#e5b45c';
-  ctx.lineWidth = Math.max(2, W * 0.0028);
-  ctx.setLineDash([W * 0.012, W * 0.009]);
-  ctx.globalAlpha = 0.9;
-  const zx0 = cx - 0.13;
-  const zx1 = cx + 0.13;
-  ctx.strokeRect(X(zx0), Y(zoneY0), X(zx1 - zx0), Y(zoneY0 + zoneH) - Y(zoneY0));
+  const bandY0 = 0.50;
+  const bandY1 = 0.75;
+  ctx.fillStyle = 'rgba(229,180,92,0.08)';
+  ctx.fillRect(X(0.18), Y(bandY0), X(0.64), Y(bandY1) - Y(bandY0));
+  ctx.strokeStyle = 'rgba(229,180,92,0.45)';
+  ctx.lineWidth = Math.max(1, W * 0.002);
+  ctx.setLineDash([W * 0.008, W * 0.006]);
+  ctx.strokeRect(X(0.18), Y(bandY0), X(0.64), Y(bandY1) - Y(bandY0));
   ctx.setLineDash([]);
-  ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(229,180,92,0.85)';
-  ctx.font = `600 ${Math.round(W * 0.02)}px Inter, sans-serif`;
+  ctx.font = `600 ${Math.round(W * 0.018)}px Inter, sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('logo', X(cx), Y(zoneY0 + 0.035));
+  ctx.fillText('logo zone · 1-2 in above hem', X(cx), Y(bandY0 + 0.025));
   ctx.restore();
+
+
 
   // vertical center strip guide: dashed center line top→bottom
   ctx.save();

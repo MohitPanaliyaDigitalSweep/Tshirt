@@ -280,19 +280,27 @@ export default function FlatViewEditor({
       const sx = drag.corner === 'tl' || drag.corner === 'bl' ? -1 : 1;
       const sy = drag.corner === 'tl' || drag.corner === 'tr' ? -1 : 1;
       const delta = (dx * sx + dy * sy) / 2;
-      let nw = Math.max(MIN_PX, drag.startW + delta * 2);
-      let nh = Math.max(MIN_PX, drag.startH + delta * 2);
-      const lockAspect = (target.lockAspect ?? true) && target.kind === 'image';
-      if (lockAspect) {
-        // grow uniformly by width, keep ratio
-        nh = Math.max(MIN_PX, nw / drag.ratio);
-      }
-      const k = CANVAS_W / 1024;
-      emit(
-        cur.map((it) =>
-          it.id === drag.id ? { ...it, w: nw / k, h: nh / k, scale: nw / (0.2 * CANVAS_W) } : it,
-        ),
-      );
+       let nw = Math.max(MIN_PX, drag.startW + delta * 2);
+       let nh = Math.max(MIN_PX, drag.startH + delta * 2);
+       const lockAspect = (target.lockAspect ?? true) && target.kind === 'image';
+       if (lockAspect) {
+         // grow uniformly by width, keep ratio
+         nh = Math.max(MIN_PX, nw / drag.ratio);
+       }
+       // R-065 guard: sleeve images capped at panel-relative 0.6 width.
+       if (isSleeve && target.kind === 'image') {
+         const cap = 0.6 * CANVAS_W;
+         if (nw > cap) {
+           nw = cap;
+           if (lockAspect) nh = Math.max(MIN_PX, nw / drag.ratio);
+         }
+       }
+       const k = CANVAS_W / 1024;
+       emit(
+         cur.map((it) =>
+           it.id === drag.id ? { ...it, w: nw / k, h: nh / k, scale: nw / (0.2 * CANVAS_W) } : it,
+         ),
+       );
     } else if (drag.kind === 'crop' && selected) {
       const box = itemBoxPx(CANVAS_W, selected);
       const cx = selected.x * CANVAS_W;
@@ -336,16 +344,17 @@ export default function FlatViewEditor({
 
   const isSleeve = view === 'sleeveLeft' || view === 'sleeveRight';
 
-  /** Sleeve presets: Logo = outer-upper arm (y 0.30 -> x~0.21 in the R-061
-   *  projector window); Strip = outer arm center (y 0.55 -> x~0.23). */
+  /** Sleeve presets (R-065): Logo = outer arm ~62% down panel (≈1–2 in above
+   *  hem), relative width 0.45 (scale 2.25); Strip = vertical band centered
+   *  x=0.5 spanning y 0.25–0.92, narrow width 0.16 (scale 0.8). */
   const sleevePreset = (kind: 'logo' | 'strip') => {
     if (readOnly || selectedId == null || selectedLocked) return;
     if (kind === 'logo') {
-      const { x, y } = clampInto(view, 0.5, 0.3);
-      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 0.5, w: undefined, h: undefined, rotationDeg: 0 } : it)));
+      const { x, y } = clampInto(view, 0.5, 0.62);
+      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 2.25, w: undefined, h: undefined, rotationDeg: 0 } : it)));
     } else {
-      const { x, y } = clampInto(view, 0.5, 0.55);
-      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 1.2, w: undefined, h: undefined, rotationDeg: 0 } : it)));
+      const { x, y } = clampInto(view, 0.5, 0.585);
+      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 0.8, w: undefined, h: undefined, rotationDeg: 0 } : it)));
     }
   };
 
@@ -357,7 +366,12 @@ export default function FlatViewEditor({
 
   const updateSelected = (updates: Partial<FlatItem>) => {
     if (readOnly || selectedId == null || selectedLocked) return;
-    emit(items.map((it) => (it.id === selectedId ? { ...it, ...updates } : it)));
+    const nextUpdates = { ...updates };
+    // R-065 guard: sleeve images capped at panel-relative 0.6 width.
+    if (isSleeve && selected?.kind === 'image' && nextUpdates.scale !== undefined) {
+      nextUpdates.scale = Math.min(3, Math.max(0.3, nextUpdates.scale));
+    }
+    emit(items.map((it) => (it.id === selectedId ? { ...it, ...nextUpdates } : it)));
   };
 
   const rotateBy = (deg: number) => {
@@ -642,12 +656,12 @@ export default function FlatViewEditor({
                 <span>Scale</span>
                 <span className="font-mono normal-case">{selected.scale.toFixed(2)}</span>
               </span>
-              <input
-                type="range"
-                min={0.3}
-                max={3}
-                step={0.01}
-                value={selected.scale}
+               <input
+                 type="range"
+                 min={0.3}
+                 max={isSleeve && selected.kind === 'text' ? 5 : 3}
+                 step={0.01}
+                 value={selected.scale}
                 disabled={selectedLocked}
                 onChange={(e) => {
                   const s = Number(e.target.value);
@@ -679,6 +693,11 @@ export default function FlatViewEditor({
               />
             </label>
           </div>
+          {isSleeve && selected.kind === 'text' && (selected.scale ?? 1) * 0.2 > 0.8 ? (
+            <p className="text-[11px] text-vermilion">
+              Large text may wrap awkwardly on a curved arm (relative width &gt; 0.8).
+            </p>
+          ) : null}
           {selected.kind === 'text' ? (
             <div className="space-y-2 rounded-[6px] border border-gold/30 bg-graphite p-3" aria-label="Text size controls">
               <div className="flex items-center justify-between gap-2">
