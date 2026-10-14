@@ -343,15 +343,18 @@ if (uPrintOn[0] > 0.5) {
   vec2 uvFront = vec2(rex(P.x, -0.276, 0.274), rex(P.y, -0.352, 0.261));
   if (uvFront.x >= 0.0 && uvFront.x <= 1.0 && uvFront.y >= 0.0 && uvFront.y <= 1.0) {
     float mask = 1.0;
-    // feather edges via smoothstep 2%
-    float fe = 0.02;
+    // feather edges ~2-3px equivalent in texture space
+    float fe = 0.006;
     mask *= smoothstep(0.0, fe, uvFront.x) * smoothstep(1.0, 1.0-fe, uvFront.x);
     mask *= smoothstep(0.0, fe, uvFront.y) * smoothstep(1.0, 1.0-fe, uvFront.y);
     // single-sided: dot(normal, projectorDirView) > 0.25; projector dir for front is +z in view space? approx using world +z
     mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,1.0)));
-    if (mask > 0.0) {
+    if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[0], clampEdge(uvFront));
-      printColor = mix(printColor, c, c.a * mask);
+      // transparent canvas regions contribute ZERO
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
     }
   }
 }
@@ -361,53 +364,68 @@ if (uPrintOn[1] > 0.5) {
   uvBack.x = 1.0 - uvBack.x;
   if (uvBack.x >= 0.0 && uvBack.x <= 1.0 && uvBack.y >= 0.0 && uvBack.y <= 1.0) {
     float mask = 1.0;
-    float fe = 0.02;
+    float fe = 0.006;
     mask *= smoothstep(0.0, fe, uvBack.x) * smoothstep(1.0, 1.0-fe, uvBack.x);
     mask *= smoothstep(0.0, fe, uvBack.y) * smoothstep(1.0, 1.0-fe, uvBack.y);
     mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,-1.0)));
-    if (mask > 0.0) {
+    if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[1], clampEdge(uvBack));
-      printColor = mix(printColor, c, c.a * mask);
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
     }
   }
 }
-// sleeveLeft: axis -x; u = rex(z,[-0.125,0.144]), v = rex(y,[-0.05,0.26])
+// sleeves: CYLINDRICAL projection around the sleeve axis (tube runs along +/-x).
+// axis point at same x, tube center y=0.10 z=0.01 (measured mid-sleeve); theta wraps
+// the print around the tube so it reads as ink on curvy fabric, not a flat decal.
+// u = angle fraction (top of sleeve -> u=0.5), v = along-sleeve tip->shoulder.
 if (uPrintOn[2] > 0.5) {
-  vec2 uvL = vec2(rex(P.z, -0.125, 0.144), rex(P.y, -0.05, 0.26));
+  vec3 DL = P - vec3(P.x, 0.10, 0.01);
+  float thetaL = atan(DL.z, DL.y);
+  vec2 uvL = vec2(thetaL / 3.14159 * 0.5 + 0.5, rex(P.x, -0.276, -0.08));
   if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0) {
     float mask = 1.0;
-    float fe = 0.02;
+    float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvL.x) * smoothstep(1.0, 1.0-fe, uvL.x);
     mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
-    mask *= smoothstep(0.25, 0.35, dot(N, vec3(-1.0,0.0,0.0)));
-    if (mask > 0.0) {
+    // radial normal gating: face must point away from the sleeve axis
+    vec3 radL = normalize(vec3(0.0, DL.y, DL.z) + vec3(0.0, 1e-4, 0.0));
+    mask *= smoothstep(0.30, 0.45, dot(N, radL));
+    if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[2], clampEdge(uvL));
-      printColor = mix(printColor, c, c.a * mask);
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
     }
   }
 }
-// sleeveRight: axis +x; u mirrored
 if (uPrintOn[3] > 0.5) {
-  vec2 uvR = vec2(rex(P.z, -0.125, 0.144), rex(P.y, -0.05, 0.26));
-  uvR.x = 1.0 - uvR.x;
+  vec3 DR = P - vec3(P.x, 0.10, 0.01);
+  float thetaR = atan(DR.z, DR.y);
+  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, 0.276, 0.08));
   if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0) {
     float mask = 1.0;
-    float fe = 0.02;
+    float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
     mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
-    mask *= smoothstep(0.25, 0.35, dot(N, vec3(1.0,0.0,0.0)));
-    if (mask > 0.0) {
+    vec3 radR = normalize(vec3(0.0, DR.y, DR.z) + vec3(0.0, 1e-4, 0.0));
+    mask *= smoothstep(0.30, 0.45, dot(N, radR));
+    if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[3], clampEdge(uvR));
-      printColor = mix(printColor, c, c.a * mask);
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
     }
   }
 }
+// print acts as diffuse BEFORE lighting (no emissive/basic): fabric light response applies.
 diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
 `;
       const diffuse = '#include <color_fragment>';
       shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
-    mat.customProgramCacheKey = () => 'shirt-embedded-print-v1';
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v2-cylindrical-sleeves';
     return mat;
   }, []);
 
