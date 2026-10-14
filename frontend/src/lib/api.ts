@@ -623,8 +623,23 @@ export interface ViewerSettings {
   fabric_wind?: number | null;
   swing_strength?: number | null;
   autorotate_speed?: number | null;
+  max_upload_mb?: number | null;
+  shop_name?: string | null;
+  support_email?: string | null;
+  announcement?: string | null;
   [k: string]: unknown;
 }
+
+/** Keys accepted by PUT /api/admin/settings. Anything else → 400. */
+export const SETTINGS_KEYS = [
+  'fabric_wind',
+  'swing_strength',
+  'autorotate_speed',
+  'max_upload_mb',
+  'shop_name',
+  'support_email',
+  'announcement',
+] as const;
 
 export const SETTINGS_DEFAULTS: { fabric_wind: number; swing_strength: number; autorotate_speed: number } = {
   fabric_wind: 0.35,
@@ -672,18 +687,38 @@ export async function getSettings(): Promise<ViewerSettings> {
   }
 }
 
-/** Admin write: tries PUT /api/admin/settings, falls back to PUT /api/settings. Verbatim errors. */
+/** Admin write: one PUT /api/admin/settings {key,value} per allowlisted key.
+ *  The backend rejects any other shape with 400, so never PUT the whole
+ *  object. Per-key 422s are collected into one message (shown verbatim by
+ *  the Admin UI); other errors throw immediately. Returns a fresh read
+ *  (admin GET with public GET fallback). */
 export async function updateSettings(input: ViewerSettings): Promise<ViewerSettings> {
-  try {
-    const body = await request<unknown>('/admin/settings', { method: 'PUT', body: JSON.stringify(input) });
-    return normalizeSettings(body);
-  } catch (e) {
-    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
-      const body = await request<unknown>('/settings', { method: 'PUT', body: JSON.stringify(input) });
-      return normalizeSettings(body);
+  const failures: string[] = [];
+  let saved = 0;
+  for (const key of SETTINGS_KEYS) {
+    const value = input[key];
+    if (value === undefined) continue;
+    try {
+      await request<unknown>('/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ key, value }),
+      });
+      saved += 1;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        failures.push(`${key}: ${e.message}`);
+      } else {
+        throw e;
+      }
     }
-    throw e;
   }
+  if (failures.length > 0) {
+    throw new ApiError(422, failures.join('; '));
+  }
+  if (saved === 0) {
+    throw new ApiError(400, 'No known settings keys to save');
+  }
+  return getSettings();
 }
 
 /* ---------- profile completeness gate (frontend only; no backend validation) ---------- */
