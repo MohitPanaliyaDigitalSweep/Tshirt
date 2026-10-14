@@ -118,15 +118,12 @@ export default function AccountPage() {
     );
   }
 
-  const checklist = useMemo(
-    () => [
-      { key: 'name', label: 'Name (≥2 characters)', done: name.trim().length >= 2 },
-      { key: 'phone', label: 'Phone', done: phone.trim().length > 0 },
-      { key: 'address', label: 'Street address', done: address.trim().length > 0 },
-      { key: 'city', label: 'City', done: city.trim().length > 0 },
-    ],
-    [name, phone, address, city],
-  );
+  const checklist = [
+    { key: 'name', label: 'Name (≥2 characters)', done: name.trim().length >= 2 },
+    { key: 'phone', label: 'Phone', done: phone.trim().length > 0 },
+    { key: 'address', label: 'Street address', done: address.trim().length > 0 },
+    { key: 'city', label: 'City', done: city.trim().length > 0 },
+  ];
   const complete = checklist.every((c) => c.done);
 
   return (

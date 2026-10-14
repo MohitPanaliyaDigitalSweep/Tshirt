@@ -32,3 +32,8 @@ One machine + one codespace (codespace opencode owns R-056); SeaORM→local sqli
 
 ## Open
 R2 vs S3; Google/OTP auth vs password-only; Turso Cloud DB name/token; PAT re-issue for git push.
+
+### R-063 (2026-10-14, frontend-only)
+- Sleeve projector visually verified; debug page + aux routes removed.
+- Final mapping kept: cylindrical projection around sleeve axis (x); L: v=rex(P.x,0.27,0.18), u=1-(theta/pi*0.5+0.5); R: v=rex(P.x,-0.27,-0.18), u= theta/pi*0.5+0.5. Gates: |x| in (0.175,0.275), y in (-0.06,0.23), angular feather at 1.25..1.60 rad, radial dot 0.35..0.50, N.y -0.25..0.0.
+- npm run build passes.
