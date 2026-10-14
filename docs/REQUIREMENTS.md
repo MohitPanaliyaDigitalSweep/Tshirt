@@ -16,8 +16,13 @@
 - [x] Order sizes accept object OR string, normalized to canonical "S:2,M:10" (fix "Save failed: Bad Request") — verified live
 - [x] Git repo github.com/MohitPanaliyaDigitalSweep/Tshirt created, main pushed (2nd commit local-only, PAT revoked — re-push pending)
 - [x] Codespace handoff docs: .devcontainer + post-create (opencode) + CODESPACE-PLAYBOOK/TODO
-- [ ] Projective print bake: embedded fabric decals replacing floating drei Decals (codespace, R-056)
-- [ ] FlatViewEditor: 4 views + corner presets + collar no-go band (codespace, R-056)
+- [x] Projective print bake: embedded fabric decals replacing floating drei Decals (codespace, R-056)
+- [x] FlatViewEditor: 4 views + corner presets + collar no-go band (codespace, R-056)
+- [x] Sleeve print verified on outer-upper arm via orbit screenshots, debug paint removed (R-063)
+- [x] Admin settings save fixed: per-key {key,value} PUT upserts (R-062)
+- [x] Order lifecycle enforced (done from confirmed only, cancel gating) + admin backoffice sidebar shell (R-059)
+- [x] Account menu + profile gate before save/quote; wind global-only (R-060)
+- [x] PWA install on Android/Windows/iOS with PNG icons (R-061)
 - [ ] Text tool (codespace, R-056)
 - [ ] Snapshot schema v2 + v1 migration (codespace, R-056)
 - [ ] Rotate seed admin admin@example.com/Admin123!

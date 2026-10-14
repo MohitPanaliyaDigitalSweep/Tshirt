@@ -1,39 +1,46 @@
 # STATUS — tshirt-studio
 
 **Goal:** Customer 3D quote PWA + admin dashboard, Loco API, Turso-synced DB.
-**State:** LIVE https://tshirt.brightive.shop (2026-10-13) with kinpaku dark design system + interior viewer scene + order-sizes fix.
+**State:** LIVE https://tshirt.brightive.shop (2026-10-14) — kinpaku dark design, garment editors, baked 3D print, admin backoffice.
 
-## Done (this session)
-- Impeccable/kinpaku design system on all pages: lacquer ground, gold accent, Fraunces+Inter, GSAP, a11y pass.
-- ShirtViewer interior scene (`frontend/src/components/Interior.tsx`): procedural oak plank floor (canvas-gen 2048px), terracotta rug, plaster wall, brass stool + caramel ottoman (Impeccable palette), amber practical strip, CSS vignette.
-- Backend fix: `OrderParams.sizes` is now `Option<Value>` accepting object OR string — root cause of "Save failed: Bad Request" (frontend sent `{S,M,L,XL}` object). Normalized to canonical `"S:2,M:10..."`. No migration needed. Verified live: sizes-object POST → 200, stored `"S:2,M:10,L:5"`.
-- Git: repo github.com/MohitPanaliyaDigitalSweep/Tshirt created; `main` pushed (2 commits). 2nd commit (docs playbook + .devcontainer) is LOCAL only — PAT revoked mid-session, re-push pending.
-- Codespace handoff: `.devcontainer/devcontainer.json` (ssehd + node + ghcli + docker-in-docker) + post-create.sh installs opencode; `docs/CODESPACE-PLAYBOOK.md` + `docs/CODESPACE-TODO.md` (free-model priority kimi/glm/qwen -free, `export OPENCODE_MODEL`; 3-subagent fan-out, push after each change; 10-min restart rate-limit protocol; definition of done for R-056).
+## Live features (verified 2026-10-14)
+- Kinpaku dark design system + oak/matte interior viewer scene (Interior.tsx).
+- Garment-shaped flat editors with Logo/Strip presets, crop/rotate/resize/align (RLTB center snap)/keyboard nudge, layer list, lock/visibility.
+- 3D print baked into fabric via projective mapping: front/back ortho; sleeves cylindrical on outer arm |x| 0.18–0.27 — verified via orbit screenshots; debug paint/proof routes removed.
+- Account menu (no standalone login/logout buttons); profile gate (name/phone/address/city) before save/quote with ?next= return.
+- PWA install on Android/Windows/iOS (banner, account-menu entry, iOS Share guide; PNG icons).
+- Admin standalone backoffice: sidebar (Orders/Materials/Assets/Clients/Settings), sort/search, assets gallery, client aggregation.
+- Order flow enforced: done from confirmed only; admin cancel from quote_requested/quoted/confirmed; customer cancel from draft/quote_requested (422s verbatim).
+- Settings save fixed: per-key {key,value} PUT upserts with verbatim 422 collection.
+- COLLARED wind is global-only (designer slider removed).
 
-## Next (owned by codespace opencode — R-056)
-1. Projective print bake: embedded fabric decals replacing floating drei Decals.
-2. FlatViewEditor: 4 views + corner presets + collar no-go band.
-3. Text tool.
-4. Snapshot schema v2 + v1 migration.
+## GitHub / codespace
+- Repo github.com/MohitPanaliyaDigitalSweep/Tshirt, main tip `c15626f`.
+- Codespace loop: ssh alias works; free models — muse-spark had 2 froze runs on R-063 (codespace restarted after ~10 min per user protocol), cat-jam completed, big-pickle completed R-056.
 
-## Reminders
+## Done (R-056 / R-059 .. R-063)
+- R-056 (codespace): projective print bake (embedded fabric decals), FlatViewEditor with corner presets.
+- R-059: done/cancel lifecycle, flat-editor pro tools, cylindrical sleeves v1, profile city/postal/country, admin shell.
+- R-060: garment canvases, sleeve Logo/Strip presets, text font-size/scale, account menu, profile gate, wind slider removed.
+- R-061: PWA install UX + PNG icons; sleeve projector moved onto arm (vertex-bin proof 0 shoulder, 100% tube).
+- R-062: settings save Bad Request fixed (per-key PUT).
+- R-063: sleeve projector visually verified on outer-upper arm; debug page + aux routes removed.
+
+## Next
+- Text tool (codespace, R-056 remainder).
+- Snapshot schema v2 + v1 migration (codespace, R-056 remainder).
+
+## Reminders / Open
 - Seed admin admin@example.com/Admin123! still UNROTATED.
+- DB is ephemeral on Temps redeploys (re-seeded).
+- Clients tab shows "—" for contact details (known gap).
 - Caddy route is in-memory — re-apply cmd in CHANGELOG (docs/tshirt-route.json).
-- Re-push 2nd commit once new PAT available.
 
 ## Key paths
 `backend/`, `frontend/`, `frontend/src/components/Interior.tsx`, `.devcontainer/`, `docs/CODESPACE-PLAYBOOK.md`, `docs/CODESPACE-TODO.md`.
 
 ## Commands
-Backend `cargo loco start`; frontend `npm run dev`; deploy via Temps (see CHANGELOG).
+Backend `cargo loco start`; frontend `npm run dev`, `npm run build`; deploy via Temps (see CHANGELOG).
 
 ## Constraints
-One machine + one codespace (codespace opencode owns R-056); SeaORM→local sqlite file only; secrets in env.
-
-## Open
-R2 vs S3; Google/OTP auth vs password-only; Turso Cloud DB name/token; PAT re-issue for git push.
-
-### R-063 (2026-10-14, frontend-only)
-- Sleeve projector visually verified; debug page + aux routes removed.
-- Final mapping kept: cylindrical projection around sleeve axis (x); L: v=rex(P.x,0.27,0.18), u=1-(theta/pi*0.5+0.5); R: v=rex(P.x,-0.27,-0.18), u= theta/pi*0.5+0.5. Gates: |x| in (0.175,0.275), y in (-0.06,0.23), angular feather at 1.25..1.60 rad, radial dot 0.35..0.50, N.y -0.25..0.0.
-- npm run build passes.
+One machine + one codespace (codespace opencode owns R-056 remainder); SeaORM→local sqlite file only; secrets in env.
