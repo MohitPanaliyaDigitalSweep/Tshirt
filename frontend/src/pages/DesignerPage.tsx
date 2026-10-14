@@ -1,20 +1,23 @@
 import gsap from 'gsap';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import ShirtViewer, { type View, type Views, type FlatItem } from '../components/ShirtViewer';
 import FlatViewEditor from '../components/FlatViewEditor';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnPrimary, btnSecondary, inputCls } from '../components/ui';
 import { drawFlatItems, drawSilhouetteAndBand } from '../lib/flat';
 import {
   ApiError,
+  PROFILE_REQUIRED_MSG,
   SETTINGS_DEFAULTS,
   createAsset,
   createOrder,
   getOrder,
+  getProfile,
   getPublicSettings,
   listMaterials,
   parseDesignSnapshot,
   parseSizesToBreakdown,
+  profileComplete,
   requestQuote,
   updateOrder,
   uploadFile,
@@ -51,6 +54,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 export default function DesignerPage() {
   const { token } = useSession();
   const nav = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const editId = params.get('order');
   const sectionRef = useRef<HTMLElement>(null);
@@ -69,7 +73,6 @@ export default function DesignerPage() {
   const [orderId, setOrderId] = useState<number | null>(editId ? Number(editId) : null);
   const [orderStatus, setOrderStatus] = useState<string | null>(null);
   const [wind, setWind] = useState(SETTINGS_DEFAULTS.fabric_wind);
-  const [windDefault, setWindDefault] = useState(SETTINGS_DEFAULTS.fabric_wind);
   const [swingStrength, setSwingStrength] = useState(SETTINGS_DEFAULTS.swing_strength ?? 1);
   const [autorotateSpeed, setAutorotateSpeed] = useState(SETTINGS_DEFAULTS.autorotate_speed);
   const [textForm, setTextForm] = useState(false);
@@ -113,7 +116,6 @@ export default function DesignerPage() {
         if (!alive) return;
         const w = typeof s.fabric_wind === 'number' ? s.fabric_wind : SETTINGS_DEFAULTS.fabric_wind;
         setWind(w);
-        setWindDefault(w);
         if (typeof s.swing_strength === 'number') setSwingStrength(s.swing_strength);
         if (typeof s.autorotate_speed === 'number') setAutorotateSpeed(s.autorotate_speed);
       })
@@ -198,6 +200,24 @@ export default function DesignerPage() {
     if (!token) {
       setError('Please log in first (token ts_token missing).');
       nav('/auth');
+      return null;
+    }
+    // Profile gate FIRST (frontend only): name/phone/address/city required
+    // for both Save draft and Request quote. Admin flows are unaffected
+    // (designer is a customer flow).
+    try {
+      const profile = await getProfile();
+      if (!profileComplete(profile)) {
+        const back = `${location.pathname}${location.search}`;
+        setError(PROFILE_REQUIRED_MSG);
+        nav(`/account?next=${encodeURIComponent(back)}`);
+        return null;
+      }
+    } catch {
+      // If the profile read itself fails, surface it instead of saving blind.
+      setError(`${PROFILE_REQUIRED_MSG} (could not verify profile — please check your account).`);
+      const back = `${location.pathname}${location.search}`;
+      nav(`/account?next=${encodeURIComponent(back)}`);
       return null;
     }
     setError(null);
@@ -337,22 +357,6 @@ export default function DesignerPage() {
             className="h-[58vh] min-h-[380px] sm:h-[62vh] lg:h-[calc(100vh-22rem)] lg:min-h-[520px]"
           />
           <p className="mt-2 text-xs text-faint">Drag to rotate, scroll to zoom. Decals sit on the fabric via raycast anchors.</p>
-          <label className="mt-3 block">
-            <span className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-              <span>Fabric wind · session override</span>
-              <span className="font-mono normal-case tracking-normal">{wind.toFixed(2)} (admin default {windDefault.toFixed(2)})</span>
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={wind}
-              onChange={(e) => setWind(Number(e.target.value))}
-              className="h-[44px] w-full cursor-pointer"
-              aria-label="Fabric wind"
-            />
-          </label>
         </Card>
         <div data-designer-anim className="mt-4">
           <Card>

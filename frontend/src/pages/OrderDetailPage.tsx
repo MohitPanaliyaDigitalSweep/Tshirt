@@ -6,14 +6,17 @@ import type { View, Views, FlatItem } from '../components/ShirtViewer';
 import {
   ApiError,
   ORDER_STATUSES,
+  PROFILE_REQUIRED_MSG,
   cancelOrder,
   confirmOrder,
   deleteOrder,
   getOrder,
+  getProfile,
   listAssets,
   listMaterials,
   parseDesignSnapshot,
   parseSizesToBreakdown,
+  profileComplete,
   requestQuote,
   updateOrder,
   type Asset,
@@ -100,6 +103,19 @@ export default function OrderDetailPage() {
 
   async function onQuote() {
     if (!order) return;
+    // Defensive profile gate (designer already gates): frontend only.
+    try {
+      const profile = await getProfile();
+      if (!profileComplete(profile)) {
+        setError(PROFILE_REQUIRED_MSG);
+        nav(`/account?next=${encodeURIComponent(`/orders/${order.id}`)}`);
+        return;
+      }
+    } catch {
+      setError(`${PROFILE_REQUIRED_MSG} (could not verify profile — please check your account).`);
+      nav(`/account?next=${encodeURIComponent(`/orders/${order.id}`)}`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

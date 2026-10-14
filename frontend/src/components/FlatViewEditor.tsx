@@ -334,6 +334,20 @@ export default function FlatViewEditor({
     emit(items.map((it) => (it.id === selectedId ? { ...it, x, y } : it)));
   };
 
+  const isSleeve = view === 'sleeveLeft' || view === 'sleeveRight';
+
+  /** Sleeve presets: Logo = top-center small (scale 0.5); Strip = vertical center. */
+  const sleevePreset = (kind: 'logo' | 'strip') => {
+    if (readOnly || selectedId == null || selectedLocked) return;
+    if (kind === 'logo') {
+      const { x, y } = clampInto(view, 0.5, 0.18);
+      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 0.5, w: undefined, h: undefined, rotationDeg: 0 } : it)));
+    } else {
+      const { x, y } = clampInto(view, 0.5, 0.55);
+      emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 1.2, w: undefined, h: undefined, rotationDeg: 0 } : it)));
+    }
+  };
+
   const doAlign = (kind: AlignKind) => {
     if (readOnly || !selected || selectedLocked) return;
     const { x, y } = alignItem(view, selected, kind);
@@ -570,18 +584,41 @@ export default function FlatViewEditor({
       {selected ? (
         <div className="space-y-3 rounded-[6px] border border-rule bg-lacquer-deep p-3">
           <div className="flex flex-wrap gap-1">
-            {(Object.keys(CORNERS) as CornerKey[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => quickPlace(key)}
-                disabled={selectedLocked}
-                aria-label={`Quick place ${key} in ${view}`}
-                className="min-h-[44px] rounded-[4px] border border-rule bg-graphite px-3 py-1 text-xs font-medium text-warm hover:border-rule-strong disabled:opacity-50"
-              >
-                {key === 'C' ? 'Center' : key === 'TL' ? 'Top-Left' : key === 'TR' ? 'Top-Right' : key === 'BL' ? 'Bottom-Left' : 'Bottom-Right'}
-              </button>
-            ))}
+            {isSleeve ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => sleevePreset('logo')}
+                  disabled={selectedLocked}
+                  aria-label="Quick place Logo top-center in sleeve"
+                  className="min-h-[44px] rounded-[4px] border border-rule bg-graphite px-3 py-1 text-xs font-medium text-warm hover:border-rule-strong disabled:opacity-50"
+                >
+                  Logo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sleevePreset('strip')}
+                  disabled={selectedLocked}
+                  aria-label="Quick place Strip vertical center in sleeve"
+                  className="min-h-[44px] rounded-[4px] border border-rule bg-graphite px-3 py-1 text-xs font-medium text-warm hover:border-rule-strong disabled:opacity-50"
+                >
+                  Strip
+                </button>
+              </>
+            ) : (
+              (Object.keys(CORNERS) as CornerKey[]).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => quickPlace(key)}
+                  disabled={selectedLocked}
+                  aria-label={`Quick place ${key} in ${view}`}
+                  className="min-h-[44px] rounded-[4px] border border-rule bg-graphite px-3 py-1 text-xs font-medium text-warm hover:border-rule-strong disabled:opacity-50"
+                >
+                  {key === 'C' ? 'Center' : key === 'TL' ? 'Top-Left' : key === 'TR' ? 'Top-Right' : key === 'BL' ? 'Bottom-Left' : 'Bottom-Right'}
+                </button>
+              ))
+            )}
           </div>
           {/* RLTB align toolbar */}
           <div role="toolbar" aria-label="Align selected item" className="flex flex-wrap gap-1">
@@ -641,6 +678,112 @@ export default function FlatViewEditor({
               />
             </label>
           </div>
+          {selected.kind === 'text' ? (
+            <div className="space-y-2 rounded-[6px] border border-gold/30 bg-graphite p-3" aria-label="Text size controls">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+                  Font size · <span className="font-mono normal-case text-gold">{selected.size ?? 60}px</span>
+                </span>
+                <span className="flex items-center gap-1" role="group" aria-label="Text size presets">
+                  {([
+                    ['S', 36],
+                    ['M', 60],
+                    ['L', 96],
+                  ] as const).map(([label, px]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => updateSelected({ size: px })}
+                      disabled={selectedLocked}
+                      aria-label={`Text size preset ${label} (${px}px)`}
+                      aria-pressed={(selected.size ?? 60) === px}
+                      className={`min-h-[44px] min-w-[44px] rounded-[4px] border px-3 py-1 text-xs font-bold ${(selected.size ?? 60) === px ? 'border-gold bg-gold text-ink' : 'border-rule bg-lacquer-deep text-warm hover:border-rule-strong'} disabled:opacity-50`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateSelected({ size: Math.max(20, (selected.size ?? 60) - 4) })}
+                  disabled={selectedLocked || (selected.size ?? 60) <= 20}
+                  aria-label="Decrease font size"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] border border-rule bg-lacquer-deep text-lg font-bold text-warm hover:border-rule-strong disabled:opacity-50"
+                >
+                  −
+                </button>
+                <input
+                  type="range"
+                  min={20}
+                  max={200}
+                  step={1}
+                  value={selected.size ?? 60}
+                  disabled={selectedLocked}
+                  onChange={(e) => updateSelected({ size: Number(e.target.value) })}
+                  className="h-[44px] flex-1 cursor-pointer"
+                  aria-label="Font size in pixels (20 to 200)"
+                />
+                <button
+                  type="button"
+                  onClick={() => updateSelected({ size: Math.min(200, (selected.size ?? 60) + 4) })}
+                  disabled={selectedLocked || (selected.size ?? 60) >= 200}
+                  aria-label="Increase font size"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] border border-rule bg-lacquer-deep text-lg font-bold text-warm hover:border-rule-strong disabled:opacity-50"
+                >
+                  +
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Font</span>
+                  <select
+                    value={selected.font || 'Inter'}
+                    disabled={selectedLocked}
+                    onChange={(e) => updateSelected({ font: e.target.value })}
+                    className="min-h-[44px] w-full rounded-[4px] border border-rule bg-lacquer-deep px-2 text-sm text-warm disabled:opacity-50"
+                    aria-label="Text font"
+                  >
+                    {['Inter', 'Fraunces', 'Arial', 'Georgia', 'Impact', 'cursive'].map((f) => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Color</span>
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={selected.color || '#ffffff'}
+                      disabled={selectedLocked}
+                      onChange={(e) => updateSelected({ color: e.target.value })}
+                      className="h-[44px] w-16 cursor-pointer rounded-[4px] border border-rule disabled:opacity-50"
+                      aria-label="Text color"
+                    />
+                    <input
+                      value={selected.color || '#ffffff'}
+                      disabled={selectedLocked}
+                      onChange={(e) => updateSelected({ color: e.target.value })}
+                      className="min-h-[44px] w-full rounded-[4px] border border-rule bg-lacquer-deep px-2 font-mono text-xs text-warm disabled:opacity-50"
+                      aria-label="Text color hex"
+                    />
+                  </span>
+                </label>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Text</span>
+                <input
+                  value={selected.text || ''}
+                  disabled={selectedLocked}
+                  onChange={(e) => updateSelected({ text: e.target.value })}
+                  className="min-h-[44px] w-full rounded-[4px] border border-rule bg-lacquer-deep px-2 text-sm text-warm disabled:opacity-50"
+                  aria-label="Text content"
+                />
+              </label>
+              <p className="text-[11px] text-faint">Font size × scale both apply live in 2D + 3D · line-height 1.15.</p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-1">
             <button type="button" onClick={() => rotateBy(-90)} disabled={selectedLocked} aria-label="Rotate minus 90 degrees" className={btnLocal}>−90°</button>
             <button type="button" onClick={() => rotateBy(90)} disabled={selectedLocked} aria-label="Rotate plus 90 degrees" className={btnLocal}>+90°</button>

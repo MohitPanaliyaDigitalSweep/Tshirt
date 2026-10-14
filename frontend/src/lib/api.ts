@@ -686,7 +686,22 @@ export async function updateSettings(input: ViewerSettings): Promise<ViewerSetti
   }
 }
 
-/* ---------- profile (name/phone/company/address) ---------- */
+/* ---------- profile completeness gate (frontend only; no backend validation) ---------- */
+
+/** Required profile for ordering: name (≥2), phone, address, city (country/postal optional). */
+export function profileComplete(
+  user: Pick<CurrentUser, 'name' | 'phone' | 'address' | 'city'> | null | undefined,
+): boolean {
+  if (!user) return false;
+  const name = (user.name ?? '').trim();
+  const phone = (user.phone ?? '').trim();
+  const address = (user.address ?? '').trim();
+  const city = (user.city ?? '').trim();
+  return name.length >= 2 && phone.length > 0 && address.length > 0 && city.length > 0;
+}
+
+export const PROFILE_REQUIRED_MSG =
+  'Complete your profile (name, phone, address, city) to place orders';
 
 export interface ProfileInput {
   name?: string | null;
