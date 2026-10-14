@@ -1,5 +1,13 @@
 export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
 
+export interface CropRect {
+  /** 0..1 fractions of the source image: left, top, width, height */
+  cx: number;
+  cy: number;
+  cw: number;
+  ch: number;
+}
+
 export interface FlatItem {
   id: string | number;
   kind: 'image' | 'text';
@@ -13,6 +21,16 @@ export interface FlatItem {
   scale: number;
   rotationDeg: number;
   opacity?: number;
+  /** visibility + edit-lock flags for the layer list */
+  visible?: boolean;
+  locked?: boolean;
+  /** aspect-lock for image resize */
+  lockAspect?: boolean;
+  /** explicit pixel size (canvas px at 1024); falls back to itemBoxPx when unset */
+  w?: number;
+  h?: number;
+  /** crop rect for image items (0..1 source fractions) */
+  crop?: CropRect | null;
 }
 
 export interface Views {
@@ -45,7 +63,18 @@ export function normalizeViews(v?: Views): Views {
   if (!v) return base;
   for (const key of VIEW_ORDER) {
     const items = v[key]?.items ?? [];
-    base[key] = { items: items.map((it) => ({ ...it, scale: it.scale ?? 1, rotationDeg: it.rotationDeg ?? 0, opacity: it.opacity ?? 1 })) };
+    base[key] = {
+      items: items.map((it) => ({
+        ...it,
+        scale: it.scale ?? 1,
+        rotationDeg: it.rotationDeg ?? 0,
+        opacity: it.opacity ?? 1,
+        visible: it.visible ?? true,
+        locked: it.locked ?? false,
+        lockAspect: it.lockAspect ?? true,
+        crop: it.crop ?? null,
+      })),
+    };
   }
   return base;
 }
@@ -73,11 +102,72 @@ export function clampInto(view: View, x: number, y: number): { x: number; y: num
   };
 }
 
-/** relative scale 1 = 0.2 view width (canvas px) */
+/** relative scale 1 = 0.2 view width (canvas px); explicit w/h win when set */
 export function itemBoxPx(canvasW: number, item: FlatItem): { w: number; h: number } {
+  const k = canvasW / 1024;
+  if (item.w != null && item.h != null) return { w: item.w * k, h: item.h * k };
   const base = 0.2 * canvasW;
   const s = item.scale ?? 1;
+  if (item.w != null) return { w: item.w * k, h: base * s };
+  if (item.h != null) return { w: base * s, h: item.h * k };
   return { w: base * s, h: base * s };
+}
+
+/** printable area bounds (0..1) for alignment targets */
+export function printableBounds(view: View): { x0: number; x1: number; y0: number; y1: number } {
+  const band = NO_GO_BAND[view].top + 0.01;
+  return { x0: 0.02, x1: 0.98, y0: band, y1: 0.98 };
+}
+
+export type AlignKind = 'left' | 'centerH' | 'right' | 'top' | 'middleV' | 'bottom' | 'center';
+
+export function alignItem(view: View, item: FlatItem, kind: AlignKind): { x: number; y: number } {
+  const b = printableBounds(view);
+  let { x, y } = item;
+  if (kind === 'left') x = b.x0;
+  else if (kind === 'centerH' || kind === 'center') x = (b.x0 + b.x1) / 2;
+  else if (kind === 'right') x = b.x1;
+  if (kind === 'top') y = b.y0;
+  else if (kind === 'middleV' || kind === 'center') y = (b.y0 + b.y1) / 2;
+  else if (kind === 'bottom') y = b.y1;
+  return clampInto(view, x, y);
+}
+
+/** snap threshold in px (at 1024 canvas): center H/V guides */
+export const SNAP_PX = 6;
+
+export function snapCenter(
+  view: View,
+  x: number,
+  y: number,
+  canvasW = 1024,
+): { x: number; y: number; snapH: boolean; snapV: boolean } {
+  const b = printableBounds(view);
+  const cx = ((b.x0 + b.x1) / 2) * canvasW;
+  const cy = ((b.y0 + b.y1) / 2) * canvasW;
+  const px = x * canvasW;
+  const py = y * canvasW;
+  let nx = x;
+  let ny = y;
+  let snapV = false;
+  let snapH = false;
+  if (Math.abs(px - cx) <= SNAP_PX) {
+    nx = cx / canvasW;
+    snapV = true;
+  }
+  if (Math.abs(py - cy) <= SNAP_PX) {
+    ny = cy / canvasW;
+    snapH = true;
+  }
+  return { x: nx, y: ny, snapH, snapV };
+}
+
+export function clampCrop(c: CropRect): CropRect {
+  const cx = Math.min(1, Math.max(0, c.cx));
+  const cy = Math.min(1, Math.max(0, c.cy));
+  const cw = Math.min(1 - cx, Math.max(0.05, c.cw));
+  const ch = Math.min(1 - cy, Math.max(0.05, c.ch));
+  return { cx, cy, cw, ch };
 }
 
 export const IMG_CACHE = new Map<string, HTMLImageElement | null>();
@@ -149,6 +239,7 @@ export function drawFlatItems(
 ): void {
   // Callers clear the target first (silhouette guide live on the same canvas).
   for (const item of items) {
+    if (item.visible === false) continue;
     ctx.save();
     ctx.translate(item.x * canvasW, item.y * canvasH);
     ctx.rotate(((item.rotationDeg ?? 0) * Math.PI) / 180);
@@ -157,10 +248,19 @@ export function drawFlatItems(
     if (item.kind === 'image' && item.url) {
       const img = loadImage(item.url, onImageLoad);
       if (img && img.complete && img.naturalWidth > 0) {
-        const ratio = Math.min(box.w / img.naturalWidth, box.h / img.naturalHeight);
-        const dw = img.naturalWidth * ratio;
-        const dh = img.naturalHeight * ratio;
-        ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+        const crop = item.crop;
+        const sx = crop ? crop.cx * img.naturalWidth : 0;
+        const sy = crop ? crop.cy * img.naturalHeight : 0;
+        const sw = crop ? crop.cw * img.naturalWidth : img.naturalWidth;
+        const sh = crop ? crop.ch * img.naturalHeight : img.naturalHeight;
+        const srcRatio = sw / Math.max(1, sh);
+        let dw = box.w;
+        let dh = box.w / srcRatio;
+        if (dh > box.h) {
+          dh = box.h;
+          dw = box.h * srcRatio;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh);
       }
     } else if (item.kind === 'text' && item.text) {
       // `size` is authored in px at 1024; scale to the destination canvas width.

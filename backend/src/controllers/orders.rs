@@ -10,6 +10,8 @@ pub const STATUS_DRAFT: &str = "draft";
 pub const STATUS_QUOTE_REQUESTED: &str = "quote_requested";
 pub const STATUS_QUOTED: &str = "quoted";
 pub const STATUS_CONFIRMED: &str = "confirmed";
+pub const STATUS_DONE: &str = "done";
+pub const STATUS_CANCELLED: &str = "cancelled";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OrderParams {
@@ -49,10 +51,12 @@ fn apply_params(mut am: ActiveModel, p: OrderParams) -> ActiveModel {
                     .map(|(k, v2)| (k.to_uppercase(), v2.as_i64().unwrap_or(0)))
                     .filter(|(_, n)| *n > 0)
                     .collect();
-                let order = |k: &str| ["S", "M", "L", "XL", "XXL"]
-                    .iter()
-                    .position(|s| s == &k)
-                    .unwrap_or(99);
+                let order = |k: &str| {
+                    ["S", "M", "L", "XL", "XXL"]
+                        .iter()
+                        .position(|s| s == &k)
+                        .unwrap_or(99)
+                };
                 kv.sort_by_key(|(k, _)| order(k));
                 Some(
                     kv.iter()
@@ -210,6 +214,74 @@ async fn confirm(
     format::json(item)
 }
 
+/// POST /api/orders/:id/cancel — customer cancels own order from draft|quote_requested.
+async fn cancel(
+    auth: auth::JWT,
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+) -> Result<Response> {
+    let Some(order) = visible_order(&ctx, &auth, id).await? else {
+        return not_found();
+    };
+    match status_of(&order) {
+        STATUS_DRAFT | STATUS_QUOTE_REQUESTED => {}
+        _ => {
+            return authz::unprocessable("only draft or quote-requested orders can be cancelled");
+        }
+    }
+    let mut am = order.into_active_model();
+    am.status = Set(Some(STATUS_CANCELLED.to_string()));
+    let item: orders::Model = am.update(&ctx.db).await?;
+    format::json(item)
+}
+
+/// POST /api/admin/orders/:id/done — confirmed -> done (admin only).
+async fn done(
+    auth: auth::JWT,
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+) -> Result<Response> {
+    if !authz::is_admin(&auth) {
+        return authz::forbidden();
+    }
+    let Some(order) = Entity::find_by_id(id).one(&ctx.db).await? else {
+        return not_found();
+    };
+    if status_of(&order) != STATUS_CONFIRMED {
+        return authz::unprocessable("Only confirmed orders can be marked done");
+    }
+    let mut am = order.into_active_model();
+    am.status = Set(Some(STATUS_DONE.to_string()));
+    let item: orders::Model = am.update(&ctx.db).await?;
+    format::json(item)
+}
+
+/// POST /api/admin/orders/:id/cancel — admin cancels from quote_requested|quoted|confirmed.
+async fn admin_cancel(
+    auth: auth::JWT,
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+) -> Result<Response> {
+    if !authz::is_admin(&auth) {
+        return authz::forbidden();
+    }
+    let Some(order) = Entity::find_by_id(id).one(&ctx.db).await? else {
+        return not_found();
+    };
+    match status_of(&order) {
+        STATUS_QUOTE_REQUESTED | STATUS_QUOTED | STATUS_CONFIRMED => {}
+        _ => {
+            return authz::unprocessable(
+                "only quote-requested, quoted or confirmed orders can be cancelled",
+            );
+        }
+    }
+    let mut am = order.into_active_model();
+    am.status = Set(Some(STATUS_CANCELLED.to_string()));
+    let item: orders::Model = am.update(&ctx.db).await?;
+    format::json(item)
+}
+
 /// PATCH /api/admin/orders/:id/quote — quote_requested -> quoted (admin only).
 async fn quote(
     auth: auth::JWT,
@@ -272,6 +344,7 @@ pub fn routes() -> Routes {
         .add("/{id}", delete(destroy))
         .add("/{id}/request-quote", post(request_quote))
         .add("/{id}/confirm", post(confirm))
+        .add("/{id}/cancel", post(cancel))
 }
 
 pub fn admin_routes() -> Routes {
@@ -280,4 +353,6 @@ pub fn admin_routes() -> Routes {
         .add("/", get(admin_list))
         .add("/{id}", get(admin_get_one))
         .add("/{id}/quote", patch(quote))
+        .add("/{id}/done", post(done))
+        .add("/{id}/cancel", post(admin_cancel))
 }

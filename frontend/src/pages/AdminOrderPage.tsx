@@ -7,6 +7,8 @@ import {
   ApiError,
   ORDER_STATUSES,
   ZONES,
+  adminCancelOrder,
+  adminDoneOrder,
   createAsset,
   deleteAsset,
   getOrder,
@@ -150,18 +152,35 @@ export default function AdminOrderPage() {
     }
   }
 
-  async function onStatus(s: string) {
+  async function onDone() {
     if (!order) return;
+    if (!window.confirm(`Mark order #${order.id} as done?`)) return;
     setBusy(true);
     setError(null);
     try {
-      // No POST .../status route on the backend — admin status changes go through PUT.
-      const updated = await updateOrder(order.id, { status: s });
+      const updated = await adminDoneOrder(order.id);
       setOrder(updated);
-      setStatus(updated.status ?? s);
-      setInfo(`Status → ${updated.status ?? s}.`);
+      setStatus(updated.status ?? 'done');
+      setInfo(`Order marked done (POST /api/admin/orders/:id/done).`);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Status change failed');
+      setError(e instanceof ApiError ? e.message : 'Mark done failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAdminCancel() {
+    if (!order) return;
+    if (!window.confirm(`Cancel order #${order.id}? This cannot be undone.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await adminCancelOrder(order.id);
+      setOrder(updated);
+      setStatus(updated.status ?? 'cancelled');
+      setInfo(`Order cancelled (POST /api/admin/orders/:id/cancel).`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Cancel failed');
     } finally {
       setBusy(false);
     }
@@ -344,8 +363,12 @@ export default function AdminOrderPage() {
             </Field>
             <button type="button" disabled={busy} onClick={() => void onSaveAll()} className={btnPrimary}>Save all (PUT)</button>
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={busy} onClick={() => void onStatus('done')} className={btnSecondary}>Mark done</button>
-              <button type="button" disabled={busy} onClick={() => void onStatus('cancelled')} className={btnSecondary}>Cancel</button>
+              {order.status === 'confirmed' ? (
+                <button type="button" disabled={busy} onClick={() => void onDone()} className={btnPrimary}>Mark Done</button>
+              ) : null}
+              {order.status === 'quote_requested' || order.status === 'quoted' || order.status === 'confirmed' ? (
+                <button type="button" disabled={busy} onClick={() => void onAdminCancel()} className={btnDanger}>Cancel order</button>
+              ) : null}
             </div>
           </div>
         </Card>

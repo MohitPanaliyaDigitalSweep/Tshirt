@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, ErrorBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnGhost, inputCls } from '../components/ui';
-import { ApiError, deleteOrder, listOrders, type Order } from '../lib/api';
+import { ApiError, ORDER_STATUSES, deleteOrder, listOrders, type Order } from '../lib/api';
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -45,6 +45,27 @@ export default function OrdersPage() {
   return (
     <section className="mx-auto max-w-5xl p-4 sm:p-6">
       <PageTitle eyebrow="Orders" title="My Orders" sub="All fields editable while draft / quote requested. Confirm once quoted." />
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+        <button
+          type="button"
+          onClick={() => setStatus('')}
+          aria-pressed={status === ''}
+          className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold uppercase tracking-[0.1em] ${status === '' ? 'border-gold bg-gold/15 text-gold' : 'border-rule bg-graphite text-muted hover:border-rule-strong'}`}
+        >
+          All
+        </button>
+        {ORDER_STATUSES.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setStatus(status === s ? '' : s)}
+            aria-pressed={status === s}
+            className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold uppercase tracking-[0.1em] ${status === s ? 'border-gold bg-gold/15 text-gold' : 'border-rule bg-graphite text-muted hover:border-rule-strong'}`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <select className={`${inputCls} max-w-[220px]`} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>

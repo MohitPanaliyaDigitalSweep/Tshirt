@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, btnPrimary, inputCls } from '../components/ui';
 import { ApiError, getProfile, updateProfile } from '../lib/api';
 
@@ -8,6 +9,9 @@ export default function AccountPage() {
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
   const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [postal, setPostal] = useState('');
+  const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(true);
   const [unsupported, setUnsupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +29,9 @@ export default function AccountPage() {
         setPhone(p.phone ?? '');
         setCompany(p.company ?? '');
         setAddress(p.address ?? '');
+        setCity(p.city ?? '');
+        setPostal(p.postal_code ?? '');
+        setCountry(p.country ?? '');
       } catch (e) {
         if (alive) setError(e instanceof ApiError ? e.message : 'Could not load profile');
       } finally {
@@ -40,6 +47,18 @@ export default function AccountPage() {
     e.preventDefault();
     setError(null);
     setInfo(null);
+    if (city.trim().length > 60) {
+      setError('City must be at most 60 characters.');
+      return;
+    }
+    if (country.trim().length > 60) {
+      setError('Country must be at most 60 characters.');
+      return;
+    }
+    if (postal.trim().length > 20) {
+      setError('Postal code must be at most 20 characters.');
+      return;
+    }
     setBusy(true);
     try {
       const p = await updateProfile({
@@ -47,11 +66,17 @@ export default function AccountPage() {
         phone: phone.trim() || null,
         company: company.trim() || null,
         address: address.trim() || null,
+        city: city.trim() || null,
+        postal_code: postal.trim() || null,
+        country: country.trim() || null,
       });
       setName(p.name ?? '');
       setPhone(p.phone ?? '');
       setCompany(p.company ?? '');
       setAddress(p.address ?? '');
+      setCity(p.city ?? '');
+      setPostal(p.postal_code ?? '');
+      setCountry(p.country ?? '');
       setInfo('Profile saved.');
     } catch (err) {
       if (err instanceof ApiError && err.status === 0) {
@@ -83,34 +108,59 @@ export default function AccountPage() {
 
   return (
     <section className="mx-auto max-w-2xl p-4 sm:p-6">
-      <PageTitle eyebrow="Account" title="Account" sub="Name, phone, company and address — used for quotes and orders." />
+      <PageTitle eyebrow="Account" title="Account" sub="Contact, company and address — used for quotes and orders." />
+      <div className="mb-3">
+        <Link to="/orders" className="inline-flex min-h-[44px] items-center font-medium text-gold hover:text-gold-pale">
+          View order history →
+        </Link>
+      </div>
       <ErrorBox message={error} onDismiss={() => setError(null)} />
       <InfoBox message={info} />
-      <Card>
-        <form onSubmit={onSave} className="space-y-4">
-          <Field label="Email (read-only)">
-            <input className={inputCls} value={email} disabled readOnly />
-          </Field>
-          <Field label="Name">
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
+      <form onSubmit={onSave} className="space-y-4">
+        <Card>
+          <h2 className="mb-3 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Contact</h2>
+          <div className="space-y-3">
+            <Field label="Email (read-only)">
+              <input className={inputCls} value={email} disabled readOnly autoComplete="email" />
+            </Field>
+            <Field label="Name">
+              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" />
+            </Field>
             <Field label="Phone">
               <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 …" autoComplete="tel" />
             </Field>
-            <Field label="Company">
-              <input className={inputCls} value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company (optional)" autoComplete="organization" />
+          </div>
+        </Card>
+        <Card>
+          <h2 className="mb-3 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Company</h2>
+          <Field label="Company">
+            <input className={inputCls} value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company (optional)" autoComplete="organization" />
+          </Field>
+        </Card>
+        <Card>
+          <h2 className="mb-3 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Address</h2>
+          <div className="space-y-3">
+            <Field label="Street address">
+              <textarea className={inputCls} rows={3} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, area…" autoComplete="street-address" />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="City">
+                <input className={inputCls} value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" autoComplete="address-level2" maxLength={60} />
+              </Field>
+              <Field label="Postal code">
+                <input className={inputCls} value={postal} onChange={(e) => setPostal(e.target.value)} placeholder="Postal code" autoComplete="postal-code" maxLength={20} />
+              </Field>
+            </div>
+            <Field label="Country">
+              <input className={inputCls} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country" autoComplete="country-name" maxLength={60} />
             </Field>
           </div>
-          <Field label="Address">
-            <textarea className={inputCls} rows={3} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, postcode…" autoComplete="street-address" />
-          </Field>
-          <button type="submit" disabled={busy || unsupported} className={btnPrimary}>
-            {busy ? 'Saving…' : 'Save profile'}
-          </button>
-          {unsupported ? <p className="text-xs text-faint">The server does not support profile fields yet — your input is kept locally in this form only.</p> : null}
-        </form>
-      </Card>
+        </Card>
+        <button type="submit" disabled={busy || unsupported} className={btnPrimary}>
+          {busy ? 'Saving…' : 'Save profile'}
+        </button>
+        {unsupported ? <p className="text-xs text-faint">The server does not support profile fields yet — your input is kept locally in this form only.</p> : null}
+      </form>
     </section>
   );
 }

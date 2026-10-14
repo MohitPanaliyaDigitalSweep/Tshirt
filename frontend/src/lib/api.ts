@@ -196,6 +196,9 @@ export interface CurrentUser {
   phone?: string | null;
   company?: string | null;
   address?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
 }
 
 export interface LoginInput {
@@ -565,6 +568,18 @@ export async function confirmOrder(id: number | string): Promise<Order> {
   return request<Order>(`/orders/${id}/confirm`, { method: 'POST', body: JSON.stringify({}) });
 }
 
+export async function cancelOrder(id: number | string): Promise<Order> {
+  return request<Order>(`/orders/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export async function adminDoneOrder(id: number | string): Promise<Order> {
+  return request<Order>(`/admin/orders/${id}/done`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export async function adminCancelOrder(id: number | string): Promise<Order> {
+  return request<Order>(`/admin/orders/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+}
+
 /* ---------- assets ---------- */
 
 export async function listAssets(orderId: number | string): Promise<Asset[]> {
@@ -678,6 +693,13 @@ export interface ProfileInput {
   phone?: string | null;
   company?: string | null;
   address?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === 'string' ? v : null;
 }
 
 function profileFrom(v: unknown): CurrentUser | null {
@@ -689,9 +711,12 @@ function profileFrom(v: unknown): CurrentUser | null {
     name: typeof r['name'] === 'string' ? r['name'] : '',
     email: typeof r['email'] === 'string' ? r['email'] : '',
     role: typeof r['role'] === 'string' ? r['role'] : (roleFromToken(getToken()) ?? 'customer'),
-    phone: typeof r['phone'] === 'string' ? r['phone'] : null,
-    company: typeof r['company'] === 'string' ? r['company'] : null,
-    address: typeof r['address'] === 'string' ? r['address'] : null,
+    phone: strOrNull(r['phone']),
+    company: strOrNull(r['company']),
+    address: strOrNull(r['address']),
+    city: strOrNull(r['city']),
+    postal_code: strOrNull(r['postal_code']),
+    country: strOrNull(r['country']),
   };
 }
 
