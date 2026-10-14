@@ -32,7 +32,6 @@ pub struct RegisterParams {
 
 /// Editable customer profile fields (PATCH /api/profile). All optional;
 /// `None` leaves the column untouched. `Some("")` clears phone/company/
-/// address; name must stay ≥2 chars.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ProfileParams {
     #[serde(default)]
@@ -43,6 +42,12 @@ pub struct ProfileParams {
     pub company: Option<String>,
     #[serde(default)]
     pub address: Option<String>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub postal_code: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
 }
 
 /// Loose phone check: optional, at most 30 chars.
@@ -50,6 +55,26 @@ pub fn validate_phone(phone: Option<&str>) -> Result<(), String> {
     if let Some(p) = phone {
         if p.len() > 30 {
             return Err("phone must be at most 30 characters".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// city/country ≤60, postal ≤20.
+pub fn validate_profile_lengths(p: &ProfileParams) -> Result<(), String> {
+    if let Some(v) = p.city.as_deref() {
+        if v.len() > 60 {
+            return Err("city must be at most 60 characters".to_string());
+        }
+    }
+    if let Some(v) = p.country.as_deref() {
+        if v.len() > 60 {
+            return Err("country must be at most 60 characters".to_string());
+        }
+    }
+    if let Some(v) = p.postal_code.as_deref() {
+        if v.len() > 20 {
+            return Err("postal_code must be at most 20 characters".to_string());
         }
     }
     Ok(())
@@ -333,6 +358,7 @@ impl Model {
             }
         }
         validate_phone(params.phone.as_deref()).map_err(|e| ModelError::msg(e.as_str()))?;
+        validate_profile_lengths(params).map_err(|e| ModelError::msg(e.as_str()))?;
         let user = Self::find_by_pid(db, pid).await?;
         let mut am = user.into_active_model();
         if let Some(name) = params.name.clone() {
@@ -353,6 +379,23 @@ impl Model {
                 None
             } else {
                 Some(address)
+            });
+        }
+        if let Some(city) = params.city.clone() {
+            am.city = ActiveValue::set(if city.is_empty() { None } else { Some(city) });
+        }
+        if let Some(postal) = params.postal_code.clone() {
+            am.postal_code = ActiveValue::set(if postal.is_empty() {
+                None
+            } else {
+                Some(postal)
+            });
+        }
+        if let Some(country) = params.country.clone() {
+            am.country = ActiveValue::set(if country.is_empty() {
+                None
+            } else {
+                Some(country)
             });
         }
         am.update(db).await.map_err(ModelError::from)

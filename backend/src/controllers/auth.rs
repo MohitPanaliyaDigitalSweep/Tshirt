@@ -181,7 +181,11 @@ async fn update_profile(
         Ok(user) => format::json(CurrentResponse::new(&user)),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("at least 2 characters") || msg.contains("at most 30 characters") {
+            if msg.contains("at least 2 characters")
+                || msg.contains("at most 30 characters")
+                || msg.contains("at most 60 characters")
+                || msg.contains("at most 20 characters")
+            {
                 authz::unprocessable(&msg)
             } else {
                 Err(e.into())

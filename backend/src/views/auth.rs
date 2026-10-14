@@ -33,6 +33,12 @@ pub struct CurrentResponse {
     pub company: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
 }
 
 impl CurrentResponse {
@@ -45,6 +51,9 @@ impl CurrentResponse {
             phone: user.phone.clone(),
             company: user.company.clone(),
             address: user.address.clone(),
+            city: user.city.clone(),
+            postal_code: user.postal_code.clone(),
+            country: user.country.clone(),
         }
     }
 }

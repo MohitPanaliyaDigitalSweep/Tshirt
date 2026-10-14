@@ -6,6 +6,7 @@ import type { View, Views, FlatItem } from '../components/ShirtViewer';
 import {
   ApiError,
   ORDER_STATUSES,
+  cancelOrder,
   confirmOrder,
   deleteOrder,
   getOrder,
@@ -139,6 +140,22 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function onCancel() {
+    if (!order) return;
+    if (!window.confirm(`Cancel order #${order.id}? This cannot be undone.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const c = await cancelOrder(order.id);
+      setOrder(c);
+      setInfo('Order cancelled.');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Cancel failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <section className="mx-auto max-w-4xl p-6"><p className="text-sm text-muted">Loading…</p></section>;
   if (!order) return <section className="mx-auto max-w-4xl p-6"><ErrorBox message={error ?? 'Not found'} /></section>;
 
@@ -229,6 +246,9 @@ export default function OrderDetailPage() {
             ) : null}
             {order.status === 'quoted' ? (
               <button type="button" disabled={busy} onClick={() => void onConfirm()} className={btnPrimary}>Confirm at ₹{order.quote_price ?? '?'}</button>
+            ) : null}
+            {order.status === 'draft' || order.status === 'quote_requested' ? (
+              <button type="button" disabled={busy} onClick={() => void onCancel()} className={btnDanger}>Cancel order</button>
             ) : null}
             {canEdit ? (
               <button type="button" onClick={() => void onDelete()} className={btnDanger}>Delete</button>
