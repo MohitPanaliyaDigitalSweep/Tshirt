@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, btnPrimary, inputCls } from '../components/ui';
 import { ApiError, PROFILE_REQUIRED_MSG, getProfile, profileComplete, updateProfile } from '../lib/api';
