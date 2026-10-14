@@ -11,3 +11,14 @@
 - [x] PWA: manifest, SW offline shell, installable (SVG icon now; PNG 192/512 later)
 - [x] Loco backend on Turso engine via sea-orm-turso (local file now; Cloud sync needs URL+token env)
 - [x] LIVE on https://tshirt.brightive.shop with SSL (Temps + Caddy vhost + LE cert)
+- [x] Kinpaku dark design system (Impeccable: lacquer ground, gold, Fraunces+Inter, GSAP, a11y) on all pages
+- [x] ShirtViewer procedural interior scene (oak floor, rug, plaster wall, brass stool + ottoman, amber strip, vignette) — Interior.tsx
+- [x] Order sizes accept object OR string, normalized to canonical "S:2,M:10" (fix "Save failed: Bad Request") — verified live
+- [x] Git repo github.com/MohitPanaliyaDigitalSweep/Tshirt created, main pushed (2nd commit local-only, PAT revoked — re-push pending)
+- [x] Codespace handoff docs: .devcontainer + post-create (opencode) + CODESPACE-PLAYBOOK/TODO
+- [ ] Projective print bake: embedded fabric decals replacing floating drei Decals (codespace, R-056)
+- [ ] FlatViewEditor: 4 views + corner presets + collar no-go band (codespace, R-056)
+- [ ] Text tool (codespace, R-056)
+- [ ] Snapshot schema v2 + v1 migration (codespace, R-056)
+- [ ] Rotate seed admin admin@example.com/Admin123!
+- [ ] Re-push local 2nd commit once new PAT issued
