@@ -190,6 +190,7 @@ export default function DesignerPage() {
     }
     if (newItems.length === 0) return;
     setViews((prev) => ({ ...prev, [activeView]: { items: [...prev[activeView].items, ...newItems] } }));
+    setSelectedId(newItems[newItems.length - 1].id);
   }
 
 
