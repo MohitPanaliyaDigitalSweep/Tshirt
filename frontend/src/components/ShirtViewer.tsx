@@ -377,21 +377,39 @@ if (uPrintOn[1] > 0.5) {
   }
 }
 // sleeves: CYLINDRICAL projection around the sleeve axis (tube runs along +/-x).
-// axis point at same x, tube center y=0.10 z=0.01 (measured mid-sleeve); theta wraps
-// the print around the tube so it reads as ink on curvy fabric, not a flat decal.
-// u = angle fraction (top of sleeve -> u=0.5), v = along-sleeve tip->shoulder.
+// axis point at same x, tube center y=0.10 z=0.01 (measured mid-sleeve).
+// FINAL MAPPING (R-060, outer-top targeting):
+//   Left = wearer's left = +x side (screen-right in front view);
+//   right = wearer's right = -x side (screen-left in front view).
+//   u = angle fraction around the tube, u=0.5 = TOP of the sleeve (theta=0).
+//   v = along-sleeve position, v=1 = SHOULDER (canvas top), v=0 = cuff tip.
+//   (CanvasTexture flipY => canvas top row = v=1 = shoulder, canvas bottom = cuff.)
+//   Left (+x):  v = rex(P.x, 0.276, 0.08)   (tip +0.276 -> shoulder +0.08),
+//               u MIRRORED (1-u) so text reads correctly viewed from outside-left.
+//   Right (-x): v = rex(P.x, -0.276, -0.08) (tip -0.276 -> shoulder -0.08),
+//               u unmirrored (reads correctly viewed from outside-right).
+//   Angular window: full strength at top, feather out by ~100 deg (keeps print
+//   off the underside/armpit while covering top + upper sides).
+//   Normal gate: radial outward + kill straight-down fragments (N.y) to keep
+//   print off the torso and inner arm. x-range gate keeps sleeves off the torso.
 if (uPrintOn[2] > 0.5) {
   vec3 DL = P - vec3(P.x, 0.10, 0.01);
   float thetaL = atan(DL.z, DL.y);
-  vec2 uvL = vec2(thetaL / 3.14159 * 0.5 + 0.5, rex(P.x, -0.276, -0.08));
-  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0) {
+  vec2 uvL = vec2(1.0 - (thetaL / 3.14159 * 0.5 + 0.5), rex(P.x, 0.276, 0.08));
+  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0 && P.x > 0.04 && P.x < 0.30) {
     float mask = 1.0;
     float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvL.x) * smoothstep(1.0, 1.0-fe, uvL.x);
     mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
+    // outer-top angular window: full strength at top, feather out by ~100deg
+    // (keeps print off the underside/armpit, shows on top + upper sides)
+    float angL = abs(thetaL);
+    mask *= 1.0 - smoothstep(1.45, 1.75, angL);
     // radial normal gating: face must point away from the sleeve axis
     vec3 radL = normalize(vec3(0.0, DL.y, DL.z) + vec3(0.0, 1e-4, 0.0));
-    mask *= smoothstep(0.30, 0.45, dot(N, radL));
+    mask *= smoothstep(0.25, 0.40, dot(N, radL));
+    // kill straight-down underside fragments only
+    mask *= smoothstep(-0.35, -0.05, N.y);
     if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[2], clampEdge(uvL));
       if (c.a > 0.003) {
@@ -403,14 +421,17 @@ if (uPrintOn[2] > 0.5) {
 if (uPrintOn[3] > 0.5) {
   vec3 DR = P - vec3(P.x, 0.10, 0.01);
   float thetaR = atan(DR.z, DR.y);
-  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, 0.276, 0.08));
-  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0) {
+  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, -0.276, -0.08));
+  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0 && P.x < -0.04 && P.x > -0.30) {
     float mask = 1.0;
     float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
     mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
+    float angR = abs(thetaR);
+    mask *= 1.0 - smoothstep(1.45, 1.75, angR);
     vec3 radR = normalize(vec3(0.0, DR.y, DR.z) + vec3(0.0, 1e-4, 0.0));
-    mask *= smoothstep(0.30, 0.45, dot(N, radR));
+    mask *= smoothstep(0.25, 0.40, dot(N, radR));
+    mask *= smoothstep(-0.35, -0.05, N.y);
     if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[3], clampEdge(uvR));
       if (c.a > 0.003) {
@@ -425,7 +446,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
       const diffuse = '#include <color_fragment>';
       shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
-    mat.customProgramCacheKey = () => 'shirt-embedded-print-v2-cylindrical-sleeves';
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v3-outer-top-sleeves';
     return mat;
   }, []);
 

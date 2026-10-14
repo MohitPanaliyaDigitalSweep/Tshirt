@@ -93,12 +93,12 @@ export const PRINTER_SIZES: Record<View, { w: number; h: number }> = {
   sleeveRight: { w: 512, h: 512 },
 };
 
-/** clamp item center into printable area (below no-go band) */
+/** clamp item center into printable area (below no-go band; sleeves: whole panel) */
 export function clampInto(view: View, x: number, y: number): { x: number; y: number } {
-  const band = NO_GO_BAND[view].top;
+  const b = printableBounds(view);
   return {
-    x: Math.min(1, Math.max(0, x)),
-    y: Math.min(1, Math.max(band + 0.01, y)),
+    x: Math.min(b.x1, Math.max(b.x0, x)),
+    y: Math.min(b.y1, Math.max(b.y0, y)),
   };
 }
 
@@ -113,10 +113,14 @@ export function itemBoxPx(canvasW: number, item: FlatItem): { w: number; h: numb
   return { w: base * s, h: base * s };
 }
 
-/** printable area bounds (0..1) for alignment targets */
+/** printable area bounds (0..1) for alignment targets.
+ *  front/back: torso region below the collar band. sleeves: whole panel. */
 export function printableBounds(view: View): { x0: number; x1: number; y0: number; y1: number } {
+  if (view === 'sleeveLeft' || view === 'sleeveRight') {
+    return { x0: 0.02, x1: 0.98, y0: 0.02, y1: 0.98 };
+  }
   const band = NO_GO_BAND[view].top + 0.01;
-  return { x0: 0.02, x1: 0.98, y0: band, y1: 0.98 };
+  return { x0: 0.06, x1: 0.94, y0: band, y1: 0.96 };
 }
 
 export type AlignKind = 'left' | 'centerH' | 'right' | 'top' | 'middleV' | 'bottom' | 'center';
@@ -202,27 +206,216 @@ export function loadImage(url: string, onLoad?: () => void): HTMLImageElement | 
   return null;
 }
 
-/** Draws the shirt silhouette outline guide + shaded collar no-go band. */
+/** Draws the garment panel guide (screen only — never called by the 3D print
+ *  bake, which uses clearCanvas + drawFlatItems art-only).
+ *  front/back: tee flat-sketch (torso, collar band, shoulder slopes, dimmed
+ *  decorative sleeve caps, hem) + dashed gold printable torso boundary.
+ *  sleeves: single tapered sleeve panel (wide shoulder/top → narrow cuff/bottom)
+ *  + dashed logo-zone marker top-center + vertical center strip guide. */
 export function drawSilhouetteAndBand(ctx: CanvasRenderingContext2D, W: number, H: number, view: View): void {
   ctx.clearRect(0, 0, W, H);
-  const band = NO_GO_BAND[view].top;
+  // kinpaku ground
+  ctx.fillStyle = '#16161a';
+  ctx.fillRect(0, 0, W, H);
 
+  if (view === 'sleeveLeft' || view === 'sleeveRight') {
+    drawSleevePanel(ctx, W, H);
+    return;
+  }
+  drawTeePanel(ctx, W, H);
+}
+
+function drawTeePanel(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+  const b = printableBounds('front');
+  // key geometry (0..1 space)
+  const neckCX = 0.5;
+  const neckW = 0.16; // half-width of collar opening
+  const shoulderY = 0.10;
+  const shoulderX0 = 0.30;
+  const shoulderX1 = 0.70;
+  const sleeveOuterX = 0.06;
+  const sleeveInnerX0 = 0.30;
+  const sleeveInnerX1 = 0.70;
+  const sleeveOuterX1 = 0.94;
+  const bodyX0 = 0.30;
+  const bodyX1 = 0.70;
+  const hemY = 0.96;
+  const armY = 0.30;
+
+  const X = (v: number) => v * W;
+  const Y = (v: number) => v * H;
+
+  // --- decorative sleeve caps (non-printable, dimmed) ---
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-  ctx.lineWidth = 3;
+  ctx.fillStyle = 'rgba(255,255,255,0.045)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth = Math.max(2, W * 0.003);
+  // left cap
   ctx.beginPath();
-  ctx.moveTo(W * 0.16, H * 0.1);
-  ctx.lineTo(W * 0.84, H * 0.1);
-  ctx.lineTo(W * 0.86, H * 0.9);
-  ctx.lineTo(W * 0.9, H * 0.98);
-  ctx.lineTo(W * 0.1, H * 0.98);
-  ctx.lineTo(W * 0.14, H * 0.9);
+  ctx.moveTo(X(shoulderX0), Y(shoulderY));
+  ctx.lineTo(X(sleeveOuterX), Y(armY - 0.06));
+  ctx.lineTo(X(0.10), Y(armY + 0.06));
+  ctx.lineTo(X(sleeveInnerX0), Y(armY));
   ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // right cap
+  ctx.beginPath();
+  ctx.moveTo(X(shoulderX1), Y(shoulderY));
+  ctx.lineTo(X(sleeveOuterX1), Y(armY - 0.06));
+  ctx.lineTo(X(0.90), Y(armY + 0.06));
+  ctx.lineTo(X(sleeveInnerX1), Y(armY));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // "decorative" tag
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.font = `${Math.round(W * 0.022)}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('sleeve · decorative', X(0.135), Y(armY + 0.10));
+  ctx.fillText('sleeve · decorative', X(0.865), Y(armY + 0.10));
+  ctx.restore();
+
+  // --- torso body ---
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.055)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.30)';
+  ctx.lineWidth = Math.max(2, W * 0.0035);
+  ctx.beginPath();
+  // start at left collar edge, slope to shoulder, down body to hem
+  ctx.moveTo(X(neckCX - neckW), Y(shoulderY));
+  ctx.lineTo(X(shoulderX0), Y(shoulderY)); // left shoulder slope (slight)
+  ctx.lineTo(X(bodyX0), Y(armY)); // armpit
+  ctx.lineTo(X(bodyX0 - 0.015), Y(hemY)); // left side seam (slight taper out)
+  ctx.lineTo(X(bodyX1 + 0.015), Y(hemY)); // hem
+  ctx.lineTo(X(bodyX1), Y(armY)); // right armpit
+  ctx.lineTo(X(shoulderX1), Y(shoulderY)); // right shoulder
+  ctx.lineTo(X(neckCX + neckW), Y(shoulderY)); // right collar edge
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // hem line
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = Math.max(1.5, W * 0.002);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(X(bodyX0 - 0.012), Y(hemY - 0.025));
+  ctx.lineTo(X(bodyX1 + 0.012), Y(hemY - 0.025));
   ctx.stroke();
   ctx.restore();
 
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  // --- crew neckline rib: collar band stays top 12% ---
+  const band = NO_GO_BAND.front.top;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.42)';
   ctx.fillRect(0, 0, W, H * band);
+  // collar rib: two arcs forming the band
+  ctx.strokeStyle = 'rgba(240,180,90,0.55)';
+  ctx.lineWidth = Math.max(2, W * 0.004);
+  ctx.beginPath();
+  ctx.ellipse(X(neckCX), Y(shoulderY - 0.005), X(neckW), Y(0.035), 0, 0, Math.PI);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = Math.max(1.5, W * 0.0025);
+  ctx.beginPath();
+  ctx.ellipse(X(neckCX), Y(shoulderY - 0.012), X(neckW + 0.018), Y(0.048), 0, 0, Math.PI);
+  ctx.stroke();
+  // no-go label
+  ctx.fillStyle = 'rgba(240,180,90,0.75)';
+  ctx.font = `600 ${Math.round(W * 0.022)}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('collar · no print', X(0.5), Y(band - 0.025));
+  ctx.restore();
+
+  // --- printable torso region: dashed gold boundary ---
+  ctx.save();
+  ctx.strokeStyle = '#e5b45c';
+  ctx.lineWidth = Math.max(2, W * 0.003);
+  ctx.setLineDash([W * 0.014, W * 0.010]);
+  ctx.globalAlpha = 0.85;
+  ctx.strokeRect(X(b.x0), Y(b.y0), X(b.x1 - b.x0), Y(b.y1 - b.y0));
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(229,180,92,0.8)';
+  ctx.font = `600 ${Math.round(W * 0.02)}px Inter, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText('printable', X(b.x0) + 6, Y(b.y0) + Math.round(W * 0.028));
+  ctx.restore();
+}
+
+function drawSleevePanel(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+  // Tapered sleeve panel: wide at shoulder/top, narrow cuff/bottom, slight curve.
+  const topY = 0.06;
+  const botY = 0.94;
+  const topHalf = 0.30; // half-width at shoulder
+  const botHalf = 0.185; // half-width at cuff
+  const cx = 0.5;
+  const X = (v: number) => v * W;
+  const Y = (v: number) => v * H;
+
+  // panel fill + outline
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.055)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.30)';
+  ctx.lineWidth = Math.max(2, W * 0.0035);
+  ctx.beginPath();
+  ctx.moveTo(X(cx - topHalf), Y(topY));
+  // left edge: gentle inward curve to cuff
+  ctx.quadraticCurveTo(X(cx - topHalf + 0.035), Y((topY + botY) / 2), X(cx - botHalf), Y(botY));
+  ctx.lineTo(X(cx + botHalf), Y(botY));
+  // right edge mirror
+  ctx.quadraticCurveTo(X(cx + topHalf - 0.035), Y((topY + botY) / 2), X(cx + topHalf), Y(topY));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // shoulder seam + cuff rib
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = Math.max(1.5, W * 0.002);
+  ctx.beginPath();
+  ctx.moveTo(X(cx - topHalf), Y(topY + 0.015));
+  ctx.lineTo(X(cx + topHalf), Y(topY + 0.015));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(X(cx - botHalf), Y(botY - 0.03));
+  ctx.lineTo(X(cx + botHalf), Y(botY - 0.03));
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.30)';
+  ctx.font = `${Math.round(W * 0.022)}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('shoulder', X(cx), Y(topY - 0.018));
+  ctx.fillText('cuff', X(cx), Y(botY + 0.045));
+  ctx.restore();
+
+  // upper logo zone marker: small dashed box top-center ~25% height
+  ctx.save();
+  const zoneH = 0.25;
+  const zoneY0 = topY + 0.03;
+  ctx.strokeStyle = '#e5b45c';
+  ctx.lineWidth = Math.max(2, W * 0.0028);
+  ctx.setLineDash([W * 0.012, W * 0.009]);
+  ctx.globalAlpha = 0.9;
+  const zx0 = cx - 0.13;
+  const zx1 = cx + 0.13;
+  ctx.strokeRect(X(zx0), Y(zoneY0), X(zx1 - zx0), Y(zoneY0 + zoneH) - Y(zoneY0));
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(229,180,92,0.85)';
+  ctx.font = `600 ${Math.round(W * 0.02)}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('logo', X(cx), Y(zoneY0 + 0.035));
+  ctx.restore();
+
+  // vertical center strip guide: dashed center line top→bottom
+  ctx.save();
+  ctx.strokeStyle = 'rgba(229,180,92,0.55)';
+  ctx.lineWidth = Math.max(1.5, W * 0.002);
+  ctx.setLineDash([W * 0.010, W * 0.010]);
+  ctx.beginPath();
+  ctx.moveTo(X(cx), Y(topY));
+  ctx.lineTo(X(cx), Y(botY));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
 }
 
 /** Clears a canvas to fully transparent. */
@@ -264,12 +457,18 @@ export function drawFlatItems(
       }
     } else if (item.kind === 'text' && item.text) {
       // `size` is authored in px at 1024; scale to the destination canvas width.
+      // Line-height fixed 1.15; multiline supported (split on \n).
       const fontSize = (item.size ?? 60) * (canvasW / 1024);
-      ctx.font = `600 ${fontSize}px ${item.font || 'Inter'}`;
+      const scaleFactor = (item.scale ?? 1);
+      const px = fontSize * scaleFactor;
+      ctx.font = `600 ${px}px ${item.font || 'Inter'}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.color || '#ffffff';
-      ctx.fillText(item.text, 0, 0);
+      const lines = String(item.text).split('\n');
+      const lh = px * 1.15;
+      const y0 = -((lines.length - 1) * lh) / 2;
+      lines.forEach((ln, i) => ctx.fillText(ln, 0, y0 + i * lh));
     }
     ctx.restore();
   }

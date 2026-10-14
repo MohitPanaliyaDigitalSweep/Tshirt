@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, btnPrimary, inputCls } from '../components/ui';
-import { ApiError, getProfile, updateProfile } from '../lib/api';
+import { ApiError, PROFILE_REQUIRED_MSG, getProfile, profileComplete, updateProfile } from '../lib/api';
 
 export default function AccountPage() {
+  const nav = useNavigate();
+  const [params] = useSearchParams();
+  const next = params.get('next');
+  const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -77,7 +81,15 @@ export default function AccountPage() {
       setCity(p.city ?? '');
       setPostal(p.postal_code ?? '');
       setCountry(p.country ?? '');
-      setInfo('Profile saved.');
+      if (profileComplete(p)) {
+        if (safeNext) {
+          nav(safeNext, { replace: true });
+          return;
+        }
+        setInfo('Profile saved — complete, you can place orders.');
+      } else {
+        setInfo('Profile saved.');
+      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 0) {
         setUnsupported(true);
@@ -106,10 +118,52 @@ export default function AccountPage() {
     );
   }
 
+  const checklist = useMemo(
+    () => [
+      { key: 'name', label: 'Name (≥2 characters)', done: name.trim().length >= 2 },
+      { key: 'phone', label: 'Phone', done: phone.trim().length > 0 },
+      { key: 'address', label: 'Street address', done: address.trim().length > 0 },
+      { key: 'city', label: 'City', done: city.trim().length > 0 },
+    ],
+    [name, phone, address, city],
+  );
+  const complete = checklist.every((c) => c.done);
+
   return (
     <section className="mx-auto max-w-2xl p-4 sm:p-6">
       <PageTitle eyebrow="Account" title="Account" sub="Contact, company and address — used for quotes and orders." />
-      <div className="mb-3">
+      {safeNext ? (
+        <div className="mb-3 rounded-[6px] border border-gold-deep bg-gold/10 p-3 text-sm text-gold" role="alert">
+          {PROFILE_REQUIRED_MSG} — you&apos;ll return to {safeNext} after saving.
+        </div>
+      ) : null}
+      <Card>
+        <h2 className="mb-2 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">
+          Order readiness
+        </h2>
+        <ul className="space-y-1.5" aria-label="Profile completion checklist">
+          {checklist.map((c) => (
+            <li key={c.key} className="flex min-h-[44px] items-center gap-2 text-sm">
+              <span
+                aria-hidden="true"
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${c.done ? 'border-gold bg-gold text-ink' : 'border-rule text-faint'}`}
+              >
+                {c.done ? '✓' : '•'}
+              </span>
+              <span className={c.done ? 'text-warm' : 'text-muted'}>
+                {c.label}
+                <span className="sr-only">{c.done ? ' (done)' : ' (missing)'}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-faint">
+          {complete
+            ? 'Profile complete — you can place orders.'
+            : 'Name, phone, address and city are required to place orders (country/postal optional).'}
+        </p>
+      </Card>
+      <div className="mb-3 mt-3">
         <Link to="/orders" className="inline-flex min-h-[44px] items-center font-medium text-gold hover:text-gold-pale">
           View order history →
         </Link>
