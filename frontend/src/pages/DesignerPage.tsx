@@ -2,6 +2,7 @@ import gsap from 'gsap';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import ShirtViewer, { type View, type Views, type FlatItem } from '../components/ShirtViewer';
+import InstallAppBanner from '../components/InstallApp';
 import FlatViewEditor from '../components/FlatViewEditor';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnPrimary, btnSecondary, inputCls } from '../components/ui';
 import { drawFlatItems, drawSilhouetteAndBand } from '../lib/flat';
@@ -330,6 +331,7 @@ export default function DesignerPage() {
       ) : null}
       <ErrorBox message={error} onDismiss={() => setError(null)} />
       <InfoBox message={info} />
+      <InstallAppBanner />
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div data-designer-anim className="min-w-0 lg:sticky lg:top-20">
         <Card>

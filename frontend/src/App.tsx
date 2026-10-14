@@ -12,6 +12,7 @@ import {
 } from 'react-router-dom';
 import { current, logout, type CurrentUser } from './lib/api';
 import { useSession } from './lib/session';
+import { InstallMenuItem } from './components/InstallApp';
 import AccountPage from './pages/AccountPage';
 import AdminOrderPage from './pages/AdminOrderPage';
 import AdminPage from './pages/AdminPage';
@@ -173,6 +174,12 @@ function AccountMenu() {
                   Dashboard
                 </Link>
               ) : null}
+              <InstallMenuItem
+                onDone={() => setOpen(false)}
+                buttonRef={(el) => {
+                  itemRefs.current[4] = el;
+                }}
+              />
               <button
                 ref={(el) => {
                   itemRefs.current[3] = el;
@@ -214,6 +221,12 @@ function AccountMenu() {
               >
                 Create account
               </Link>
+              <InstallMenuItem
+                onDone={() => setOpen(false)}
+                buttonRef={(el) => {
+                  itemRefs.current[4] = el;
+                }}
+              />
             </>
           )}
         </div>

@@ -21,6 +21,12 @@ interface ShirtViewerProps {
   autoRotate?: boolean;
   /** OrbitControls auto-rotate speed. Default 1.0. */
   autoRotateSpeed?: number;
+  /** Fixed camera orbit for verification screenshots (deg). When both are set,
+   *  FitRig places the camera on that bearing instead of the default direction.
+   *  azimuth 0 = front (+z), +90 = wearer-left outer arm (+x). */
+  cameraAzimuthDeg?: number;
+  /** Polar angle from +y. Default ~78 (slightly above horizontal). */
+  cameraPolarDeg?: number;
   /** Extra classes merged into the container */
   className?: string;
 }
@@ -123,7 +129,15 @@ function fitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
   return Math.max(fitH, fitW, MODEL_SIZE.z) * margin;
 }
 
-function FitRig({ controlsRef }: { controlsRef: React.RefObject<ControlsLike | null> }) {
+function FitRig({
+  controlsRef,
+  azimuthDeg,
+  polarDeg,
+}: {
+  controlsRef: React.RefObject<ControlsLike | null>;
+  azimuthDeg?: number;
+  polarDeg?: number;
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
   const introDone = useRef(false);
@@ -131,9 +145,20 @@ function FitRig({ controlsRef }: { controlsRef: React.RefObject<ControlsLike | n
   useEffect(() => {
     const controls = controlsRef.current;
     const dist = fitDistance(camera.fov, size.width / Math.max(1, size.height));
-    const dir = camera.position.clone().sub(controls?.target ?? MODEL_CENTER);
-    if (dir.lengthSq() < 1e-6) dir.set(0, 0.08, 1);
-    dir.normalize();
+    let dir: THREE.Vector3;
+    if (azimuthDeg != null && polarDeg != null) {
+      const az = THREE.MathUtils.degToRad(azimuthDeg);
+      const pol = THREE.MathUtils.degToRad(polarDeg);
+      dir = new THREE.Vector3(
+        Math.sin(pol) * Math.sin(az),
+        Math.cos(pol),
+        Math.sin(pol) * Math.cos(az),
+      );
+    } else {
+      dir = camera.position.clone().sub(controls?.target ?? MODEL_CENTER);
+      if (dir.lengthSq() < 1e-6) dir.set(0, 0.08, 1);
+      dir.normalize();
+    }
     const place = (d: number) => {
       if (controls) {
         controls.target.copy(MODEL_CENTER);
@@ -144,7 +169,7 @@ function FitRig({ controlsRef }: { controlsRef: React.RefObject<ControlsLike | n
       camera.far = d + 10;
       camera.updateProjectionMatrix();
     };
-    if (!introDone.current) {
+    if (!introDone.current && azimuthDeg == null) {
       introDone.current = true;
       place(dist * 1.55);
       const tween = gsap.to(camera.position, {
@@ -158,8 +183,9 @@ function FitRig({ controlsRef }: { controlsRef: React.RefObject<ControlsLike | n
         tween.kill();
       };
     }
+    introDone.current = true;
     place(dist);
-  }, [camera, controlsRef, size.width, size.height]);
+  }, [camera, controlsRef, size.width, size.height, azimuthDeg, polarDeg]);
 
   return null;
 }
@@ -221,11 +247,15 @@ function createPrintRenderer() {
   });
 
   const renderRef = { current: null as null | ((views?: Views) => void) };
+  // Late image loads must repaint the CURRENT views — never a blank slate
+  // (cold-cache uploads would otherwise clear all four print textures).
+  let lastViews: Views | undefined;
   const redraw = () => {
-    renderRef.current?.();
+    if (lastViews) renderRef.current?.(lastViews);
   };
 
   const render = (views?: Views) => {
+    if (views) lastViews = views;
     const viewsSafe = views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
     const pairs: Array<{ key: 'front' | 'back' | 'sleeveLeft' | 'sleeveRight'; items: FlatItem[] }> = [
       { key: 'front', items: viewsSafe.front.items },
@@ -378,38 +408,50 @@ if (uPrintOn[1] > 0.5) {
 }
 // sleeves: CYLINDRICAL projection around the sleeve axis (tube runs along +/-x).
 // axis point at same x, tube center y=0.10 z=0.01 (measured mid-sleeve).
-// FINAL MAPPING (R-060, outer-top targeting):
+// FINAL MAPPING (R-061 sleeve fix — outer-arm targeting):
+//   Measured GLB vertex bins show the true arm tube lives at |x| in
+//   [0.18, 0.27] (tube y-mean ~+0.10, y confined to [-0.02, +0.21]);
+//   |x| in [0.08, 0.18] is shoulder cap + torso side (y spans
+//   -0.35..+0.25, y-mean negative). The old window (tip 0.276 ->
+//   shoulder 0.08) mapped canvas-top artwork onto x~0.11, i.e. the
+//   shoulder cap. The window is now shifted down/outward onto the arm:
+//   tip 0.27 -> seam 0.18, and the x-range gate rejects everything
+//   seam-ward of 0.175 plus a y-band gate rejects torso drape.
 //   Left = wearer's left = +x side (screen-right in front view);
 //   right = wearer's right = -x side (screen-left in front view).
 //   u = angle fraction around the tube, u=0.5 = TOP of the sleeve (theta=0).
-//   v = along-sleeve position, v=1 = SHOULDER (canvas top), v=0 = cuff tip.
-//   (CanvasTexture flipY => canvas top row = v=1 = shoulder, canvas bottom = cuff.)
-//   Left (+x):  v = rex(P.x, 0.276, 0.08)   (tip +0.276 -> shoulder +0.08),
+//   v = along-sleeve position, v=1 = SEAM side (canvas top), v=0 = cuff tip.
+//   (CanvasTexture flipY => canvas top row = v=1 = seam, canvas bottom = cuff.)
+//   Left (+x):  v = rex(P.x, 0.27, 0.18)   (tip 0.27 -> seam 0.18),
 //               u MIRRORED (1-u) so text reads correctly viewed from outside-left.
-//   Right (-x): v = rex(P.x, -0.276, -0.08) (tip -0.276 -> shoulder -0.08),
+//   Right (-x): v = rex(P.x, -0.27, -0.18) (tip -0.27 -> seam -0.18),
 //               u unmirrored (reads correctly viewed from outside-right).
-//   Angular window: full strength at top, feather out by ~100 deg (keeps print
+//   Preset placement in the new window (canvas y 0=top, v = 1-y):
+//     Logo (0.5, 0.30) -> v=0.70 -> x = 0.27-0.70*0.09 = 0.207 (outer-upper arm)
+//     Strip (0.5, 0.55) -> v=0.45 -> x = 0.27-0.45*0.09 = 0.230 (outer arm center)
+//   Angular window: full strength at top, feathered out by ~90deg (keeps print
 //   off the underside/armpit while covering top + upper sides).
 //   Normal gate: radial outward + kill straight-down fragments (N.y) to keep
-//   print off the torso and inner arm. x-range gate keeps sleeves off the torso.
+//   print off the torso and inner arm. x-range + y-band gates keep sleeves
+//   off the shoulder cap and torso drape.
 if (uPrintOn[2] > 0.5) {
   vec3 DL = P - vec3(P.x, 0.10, 0.01);
   float thetaL = atan(DL.z, DL.y);
-  vec2 uvL = vec2(1.0 - (thetaL / 3.14159 * 0.5 + 0.5), rex(P.x, 0.276, 0.08));
-  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0 && P.x > 0.04 && P.x < 0.30) {
+  vec2 uvL = vec2(1.0 - (thetaL / 3.14159 * 0.5 + 0.5), rex(P.x, 0.27, 0.18));
+  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0 && P.x > 0.175 && P.x < 0.275 && P.y > -0.06 && P.y < 0.23) {
     float mask = 1.0;
     float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvL.x) * smoothstep(1.0, 1.0-fe, uvL.x);
     mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
-    // outer-top angular window: full strength at top, feather out by ~100deg
+    // outer-top angular window: full strength at top, feather out by ~90deg
     // (keeps print off the underside/armpit, shows on top + upper sides)
     float angL = abs(thetaL);
-    mask *= 1.0 - smoothstep(1.45, 1.75, angL);
+    mask *= 1.0 - smoothstep(1.25, 1.60, angL);
     // radial normal gating: face must point away from the sleeve axis
     vec3 radL = normalize(vec3(0.0, DL.y, DL.z) + vec3(0.0, 1e-4, 0.0));
-    mask *= smoothstep(0.25, 0.40, dot(N, radL));
-    // kill straight-down underside fragments only
-    mask *= smoothstep(-0.35, -0.05, N.y);
+    mask *= smoothstep(0.35, 0.50, dot(N, radL));
+    // kill underside fragments only (tighter than before: -0.25 -> 0.0)
+    mask *= smoothstep(-0.25, 0.0, N.y);
     if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[2], clampEdge(uvL));
       if (c.a > 0.003) {
@@ -421,17 +463,17 @@ if (uPrintOn[2] > 0.5) {
 if (uPrintOn[3] > 0.5) {
   vec3 DR = P - vec3(P.x, 0.10, 0.01);
   float thetaR = atan(DR.z, DR.y);
-  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, -0.276, -0.08));
-  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0 && P.x < -0.04 && P.x > -0.30) {
+  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, -0.27, -0.18));
+  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0 && P.x < -0.175 && P.x > -0.275 && P.y > -0.06 && P.y < 0.23) {
     float mask = 1.0;
     float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
     mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
     float angR = abs(thetaR);
-    mask *= 1.0 - smoothstep(1.45, 1.75, angR);
+    mask *= 1.0 - smoothstep(1.25, 1.60, angR);
     vec3 radR = normalize(vec3(0.0, DR.y, DR.z) + vec3(0.0, 1e-4, 0.0));
-    mask *= smoothstep(0.25, 0.40, dot(N, radR));
-    mask *= smoothstep(-0.35, -0.05, N.y);
+    mask *= smoothstep(0.35, 0.50, dot(N, radR));
+    mask *= smoothstep(-0.25, 0.0, N.y);
     if (mask > 0.001) {
       vec4 c = texture2D(uPrintMap[3], clampEdge(uvR));
       if (c.a > 0.003) {
@@ -446,7 +488,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
       const diffuse = '#include <color_fragment>';
       shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
-    mat.customProgramCacheKey = () => 'shirt-embedded-print-v3-outer-top-sleeves';
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v4-outer-arm-sleeves';
     return mat;
   }, []);
 
@@ -471,6 +513,8 @@ export default function ShirtViewer({
   swingStrength = 1,
   autoRotate = true,
   autoRotateSpeed = 1.0,
+  cameraAzimuthDeg,
+  cameraPolarDeg = 78,
   className = '',
 }: ShirtViewerProps) {
   const controlsRef = useRef<ControlsLike | null>(null);
@@ -591,7 +635,7 @@ export default function ShirtViewer({
             wind={clamp(wind, 0, 1)}
             strength={Number.isFinite(swingStrength) ? Math.max(0, swingStrength) : 1}
           />
-          <FitRig controlsRef={controlsRef} />
+          <FitRig controlsRef={controlsRef} azimuthDeg={cameraAzimuthDeg} polarDeg={cameraPolarDeg} />
         </Canvas>
       </ViewerErrorBoundary>
       <div

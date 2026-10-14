@@ -336,11 +336,12 @@ export default function FlatViewEditor({
 
   const isSleeve = view === 'sleeveLeft' || view === 'sleeveRight';
 
-  /** Sleeve presets: Logo = top-center small (scale 0.5); Strip = vertical center. */
+  /** Sleeve presets: Logo = outer-upper arm (y 0.30 -> x~0.21 in the R-061
+   *  projector window); Strip = outer arm center (y 0.55 -> x~0.23). */
   const sleevePreset = (kind: 'logo' | 'strip') => {
     if (readOnly || selectedId == null || selectedLocked) return;
     if (kind === 'logo') {
-      const { x, y } = clampInto(view, 0.5, 0.18);
+      const { x, y } = clampInto(view, 0.5, 0.3);
       emit(items.map((it) => (it.id === selectedId ? { ...it, x, y, scale: 0.5, w: undefined, h: undefined, rotationDeg: 0 } : it)));
     } else {
       const { x, y } = clampInto(view, 0.5, 0.55);

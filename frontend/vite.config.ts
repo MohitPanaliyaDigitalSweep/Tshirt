@@ -13,11 +13,32 @@ export default defineConfig({
       manifest: {
         name: 'Tshirt Studio',
         short_name: 'Tshirt Studio',
+        description: 'Design custom T-shirts in 3D and request a quote.',
         start_url: '/',
+        scope: '/',
         display: 'standalone',
-        background_color: '#ffffff',
-        theme_color: '#111827',
+        orientation: 'any',
+        background_color: '#0e0c09',
+        theme_color: '#0e0c09',
         icons: [
+          {
+            src: 'pwa-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'pwa-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
           {
             src: 'icon.svg',
             sizes: 'any',
