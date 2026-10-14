@@ -437,7 +437,7 @@ if (uPrintOn[1] > 0.5) {
 if (uPrintOn[2] > 0.5) {
   vec3 DL = P - vec3(P.x, 0.10, 0.01);
   float thetaL = atan(DL.z, DL.y);
-  vec2 uvL = vec2(1.0 - (thetaL / 3.14159 * 0.5 + 0.5), rex(P.x, 0.27, 0.18));
+  vec2 uvL = vec2(0.75 - thetaL / 6.2831853, rex(P.x, 0.27, 0.18));
   if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0 && P.x > 0.175 && P.x < 0.275 && P.y > -0.06 && P.y < 0.23) {
     float mask = 1.0;
     float fe = 0.01;
@@ -445,8 +445,8 @@ if (uPrintOn[2] > 0.5) {
     mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
     // outer-top angular window: full strength at top, feather out by ~90deg
     // (keeps print off the underside/armpit, shows on top + upper sides)
-    float angL = abs(thetaL);
-    mask *= 1.0 - smoothstep(1.25, 1.60, angL);
+    float angL = abs(thetaL - 1.5707963);
+    mask *= 1.0 - smoothstep(1.0, 1.22, angL);
     // radial normal gating: face must point away from the sleeve axis
     vec3 radL = normalize(vec3(0.0, DL.y, DL.z) + vec3(0.0, 1e-4, 0.0));
     mask *= smoothstep(0.35, 0.50, dot(N, radL));
@@ -463,14 +463,14 @@ if (uPrintOn[2] > 0.5) {
 if (uPrintOn[3] > 0.5) {
   vec3 DR = P - vec3(P.x, 0.10, 0.01);
   float thetaR = atan(DR.z, DR.y);
-  vec2 uvR = vec2(thetaR / 3.14159 * 0.5 + 0.5, rex(P.x, -0.27, -0.18));
+  vec2 uvR = vec2(thetaR / 6.2831853 + 0.25, rex(P.x, -0.27, -0.18));
   if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0 && P.x < -0.175 && P.x > -0.275 && P.y > -0.06 && P.y < 0.23) {
     float mask = 1.0;
     float fe = 0.01;
     mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
     mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
-    float angR = abs(thetaR);
-    mask *= 1.0 - smoothstep(1.25, 1.60, angR);
+    float angR = abs(thetaR - 1.5707963);
+    mask *= 1.0 - smoothstep(1.0, 1.22, angR);
     vec3 radR = normalize(vec3(0.0, DR.y, DR.z) + vec3(0.0, 1e-4, 0.0));
     mask *= smoothstep(0.35, 0.50, dot(N, radR));
     mask *= smoothstep(-0.25, 0.0, N.y);
@@ -488,7 +488,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
       const diffuse = '#include <color_fragment>';
       shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
     };
-    mat.customProgramCacheKey = () => 'shirt-embedded-print-v4-outer-arm-sleeves';
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v5-sleeve-front-face';
     return mat;
   }, []);
 

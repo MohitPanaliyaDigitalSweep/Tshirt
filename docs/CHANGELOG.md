@@ -15,3 +15,5 @@
 - 2026-10-12: Contract reconciled (frontend→backend truth: PATCH admin quote, bare-array lists, JWT role claim); backend serves frontend/dist SPA fallback; Dockerfile single-container; lifecycle verified live (R-051/R-052).
 - 2026-10-12: Backend Turso via sea-orm-turso Proxy in after_context + full CRUD/RBAC/uploads//healthz (R-051/R-052).
 - 2026-10-12: Frontend PWA full CRUD customer+admin wired to /api (R-051/R-052).
+
+- 2026-10-14: R-064 sleeve front-face fix (frontend-only, uncommitted): cylindrical sleeve UV center shifted from top face (theta=0) to outer front face (theta=+pi/2): L u=0.75-theta/(2pi), R u=theta/(2pi)+0.25; angular feather centered on front, 1.0->1.22 rad (~57-70deg). Other gates unchanged. Preset buttons auto-revealed via auto-select on image upload. Build 0 errors, 0 console errors, visual proof /tmp/proof/r064-final/ (upper-center red 0 in all orbits, lateral 121k-196k).
