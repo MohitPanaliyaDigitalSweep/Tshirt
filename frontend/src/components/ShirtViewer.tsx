@@ -1,10 +1,10 @@
-import { ContactShadows, OrbitControls, useGLTF } from '@react-three/drei';
+import { ContactShadows, Decal, OrbitControls, useGLTF } from '@react-three/drei';
 import Interior from './Interior';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import gsap from 'gsap';
-import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { clearCanvas, drawFlatItems, PRINTER_SIZES, type Views, type FlatItem } from '../lib/flat';
+import { clearCanvas, drawFlatItems, itemBoxPx, PRINTER_SIZES, type Views, type FlatItem } from '../lib/flat';
 
 export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
 export type { FlatItem, Views };
@@ -283,17 +283,71 @@ function createPrintRenderer() {
     return [
       v.front.items.length > 0 ? 1 : 0,
       v.back.items.length > 0 ? 1 : 0,
-      v.sleeveLeft.items.length > 0 ? 1 : 0,
-      v.sleeveRight.items.length > 0 ? 1 : 0,
+      0,
+      0,
     ];
   };
 
   return { canvases, texF, texB, texSL, texSR, render, hasContent };
 }
 
+const _sleeveTexCache = new Map<string, THREE.Texture>();
+const _warnedSleeveMiss = new Set<string | number>();
+
+function _ensureSleeveTexture(item: FlatItem, bump: () => void): THREE.Texture | null {
+  if (item.kind === 'image' && item.url) {
+    const url = item.url;
+    const hit = _sleeveTexCache.get(url);
+    if (hit) return hit;
+    const tex = new THREE.Texture();
+    _sleeveTexCache.set(url, tex);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      tex.image = img;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      bump();
+    };
+    try {
+      img.src = url;
+    } catch {
+      _sleeveTexCache.delete(url);
+    }
+    return tex;
+  }
+  if (item.kind === 'text') {
+    const key = `text:${item.text ?? ''}|${item.font ?? 'Inter'}|${item.size ?? 60}|${item.color ?? '#ffffff'}`;
+    const hit = _sleeveTexCache.get(key);
+    if (hit) return hit;
+    const cvs = document.createElement('canvas');
+    cvs.width = 256;
+    cvs.height = 256;
+    const ctx = cvs.getContext('2d');
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, 256, 256);
+    const px = Math.max(8, (item.size ?? 60) * (256 / 1024));
+    ctx.font = `600 ${px}px ${item.font || 'Inter'}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = item.color || '#ffffff';
+    const lines = String(item.text ?? '').split('\\n');
+    const lh = px * 1.15;
+    const y0 = -((lines.length - 1) * lh) / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, 128, 128 + y0 + i * lh));
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    _sleeveTexCache.set(key, tex);
+    return tex;
+  }
+  return null;
+}
+
 function ShirtMesh({
   color,
   uniforms,
+  views,
 }: {
   color: string;
   uniforms: {
@@ -303,6 +357,7 @@ function ShirtMesh({
     uPrintMap: { value: THREE.Texture[] };
     uPrintOn: { value: number[] };
   };
+  views?: Views;
 }) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as { nodes: Record<string, THREE.Mesh> };
   const geometry = nodes?.['T_Shirt_male']?.geometry;
@@ -502,8 +557,95 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
     };
   }, [material]);
 
+  const [bump, setBump] = useState(0);
+  const forceBump = useCallback(() => setBump((t) => t + 1), []);
+
+  const sleeveDecals = useMemo(() => {
+    const out: Array<{
+      key: string | number;
+      map: THREE.Texture;
+      position: THREE.Vector3;
+      rotation: THREE.Euler;
+      scale: [number, number, number];
+    }> = [];
+    const mesh = new THREE.Mesh(geometry);
+    const viewsSafe = views || ({ sleeveLeft: { items: [] }, sleeveRight: { items: [] }, front: { items: [] }, back: { items: [] } } as unknown as Views);
+    const sides: Array<'left' | 'right'> = ['left', 'right'];
+    for (const side of sides) {
+      const viewKey = side === 'left' ? 'sleeveLeft' : 'sleeveRight';
+      const items = viewsSafe[viewKey]?.items ?? [];
+      const sideSign = side === 'left' ? 1 : -1;
+      for (const item of items) {
+        if (item.visible === false) continue;
+        const tex = _ensureSleeveTexture(item, forceBump);
+        if (!tex) continue;
+        const cx = item.x;
+        const cy = item.y;
+        const theta = (cx - 0.5) * 2.4;
+        const along = THREE.MathUtils.lerp(0.19, 0.26, cy);
+        const axis = new THREE.Vector3(sideSign * along, 0.10, 0.01);
+        const dir = new THREE.Vector3(0, Math.sin(theta), Math.cos(theta)).normalize();
+        const origin = axis.clone().addScaledVector(dir, 0.09 + 0.15);
+        const ray = new THREE.Raycaster(origin, dir.clone().negate(), 0, 1);
+        const hits = ray.intersectObject(mesh, false);
+        if (hits.length === 0) {
+          if (!_warnedSleeveMiss.has(item.id)) {
+            _warnedSleeveMiss.add(item.id);
+            console.warn('[R-066] sleeve raycast miss for item', item.id);
+          }
+          continue;
+        }
+        const hit = hits[0];
+        const nrm = (hit.normal ? hit.normal.clone() : null);
+        if (!nrm) continue;
+        nrm.normalize();
+        if (nrm.dot(dir) < 0.1) {
+          if (!_warnedSleeveMiss.has(item.id)) {
+            _warnedSleeveMiss.add(item.id);
+            console.warn('[R-066] sleeve raycast facing-away for item', item.id);
+          }
+          continue;
+        }
+        const position = hit.point.clone().addScaledVector(nrm, 0.002);
+        const baseQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
+        const extraDeg = (item.rotationDeg ?? 0) + (item.kind === 'text' ? 90 : 0);
+        const extraQ = new THREE.Quaternion().setFromAxisAngle(nrm, THREE.MathUtils.degToRad(extraDeg));
+        const q = extraQ.clone().multiply(baseQ);
+        const rotation = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+        const box = itemBoxPx(512, item);
+        const sx = (box.w / 512) * (0.10 / 0.45);
+        const sy = (box.h / 512) * (0.10 / 0.45);
+        out.push({
+          key: item.id,
+          map: tex,
+          position,
+          rotation,
+          scale: [sx, sy, Math.max(sx, sy)],
+        });
+      }
+    }
+    void bump;
+    return out;
+  }, [geometry, views, bump, forceBump]);
+
   if (!geometry) return null;
-  return <mesh geometry={geometry} material={material} castShadow receiveShadow />;
+  return (
+    <mesh geometry={geometry} material={material} castShadow receiveShadow>
+      {sleeveDecals.map((d) => (
+        <Decal
+          key={d.key}
+          position={d.position}
+          rotation={d.rotation}
+          scale={d.scale}
+          map={d.map}
+          material-alphaTest={0.1}
+          material-transparent
+          polygonOffsetFactor={-10}
+          depthTest={false}
+        />
+      ))}
+    </mesh>
+  );
 }
 
 export default function ShirtViewer({
@@ -606,7 +748,7 @@ export default function ShirtViewer({
           <directionalLight position={[-1.6, 0.9, -1.6]} intensity={0.7} color="#f2e3c0" />
           <Interior />
           <Suspense fallback={null}>
-            <ShirtMesh color={color} uniforms={uniforms} />
+            <ShirtMesh color={color} uniforms={uniforms} views={views} />
           </Suspense>
           <ContactShadows
             position={[0, -0.348, 0.1]}
