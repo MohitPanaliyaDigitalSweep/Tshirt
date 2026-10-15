@@ -581,12 +581,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
         if (!tex) continue;
         const cx = item.x;
         const cy = item.y;
-        const theta = (cx - 0.5) * 2.4;
-        const along = THREE.MathUtils.lerp(0.19, 0.26, cy);
-        const axis = new THREE.Vector3(sideSign * along, 0.10, 0.01);
-        const dir = new THREE.Vector3(0, Math.sin(theta), Math.cos(theta)).normalize();
-        const origin = axis.clone().addScaledVector(dir, 0.09 + 0.15);
-        const ray = new THREE.Raycaster(origin, dir.clone().negate(), 0, 1);
+        const worldX = sideSign * THREE.MathUtils.lerp(0.18, 0.26, cx);
+        const worldY = THREE.MathUtils.lerp(0.22, 0.06, cy);
+        const dir = new THREE.Vector3(0, 0, -1);
+        const origin = new THREE.Vector3(worldX, worldY, 0.25);
+        const ray = new THREE.Raycaster(origin, dir.clone(), 0, 1);
         const hits = ray.intersectObject(mesh, false);
         if (hits.length === 0) {
           if (!_warnedSleeveMiss.has(item.id)) {
@@ -599,13 +598,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
         const nrm = (hit.normal ? hit.normal.clone() : null);
         if (!nrm) continue;
         nrm.normalize();
-        if (nrm.dot(dir) < 0.1) {
-          if (!_warnedSleeveMiss.has(item.id)) {
-            _warnedSleeveMiss.add(item.id);
-            console.warn('[R-066] sleeve raycast facing-away for item', item.id);
-          }
-          continue;
-        }
         const position = hit.point.clone().addScaledVector(nrm, 0.002);
         const baseQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
         const extraDeg = (item.rotationDeg ?? 0) + (item.kind === 'text' ? 90 : 0);
@@ -647,6 +639,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
     </mesh>
   );
 }
+
+
 
 export default function ShirtViewer({
   color = '#e5e7eb',
