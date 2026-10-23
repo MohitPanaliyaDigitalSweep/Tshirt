@@ -10,6 +10,8 @@ export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
 export type { FlatItem, Views };
 
 interface ShirtViewerProps {
+  modelType?: 'shirt' | 'hoodie' | 'cap';
+  color?: string;
   color?: string;
   /** Live flat-editor state for embedded prints */
   views?: Views;
@@ -19,6 +21,7 @@ interface ShirtViewerProps {
   swingStrength?: number;
   /** Auto-rotate turntable. Default true. */
   autoRotate?: boolean;
+  modelType: 'shirt' = 'shirt';
   /** OrbitControls auto-rotate speed. Default 1.0. */
   autoRotateSpeed?: number;
   /** Fixed camera orbit for verification screenshots (deg). When both are set,
@@ -31,7 +34,13 @@ interface ShirtViewerProps {
   className?: string;
 }
 
-const MODEL_URL = '/models/shirt_baked_collapsed.glb';
+const MODEL_URLS = {
+    shirt: '/models/shirt_baked_collapsed.glb',
+    hoodie: '/models/hoodie_baked_collapsed.glb',
+    cap: '/models/cap_baked.glb',
+};
+
+const MODEL_URL = MODEL_URLS.shirt;
 
 /** Measured bounds of node T_Shirt_male: x±0.276 y-0.352..0.261 z-0.125..0.144. */
 const MODEL_BOUNDS = {
@@ -783,4 +792,4 @@ export default function ShirtViewer({
   );
 }
 
-useGLTF.preload(MODEL_URL);
+useGLTF.preload(MODEL_URLS[modelType]);

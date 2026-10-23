@@ -22,12 +22,18 @@ pub const ALLOWED_KEYS: &[&str] = &[
     "shop_name",
     "support_email",
     "announcement",
+    "tshirt_preset_price",
+    "hoodie_preset_price",
+    "cap_preset_price",
 ];
 
 /// Canonical defaults (must match the `settings` migration seed).
 pub const DEFAULTS: &[(&str, &str)] = &[
     ("fabric_wind", "0.35"),
     ("swing_strength", "1.0"),
+    ("tshirt_preset_price", "25.00"),
+    ("hoodie_preset_price", "40.00"),
+    ("cap_preset_price", "15.00"),
     ("autorotate_speed", "1.0"),
     ("max_upload_mb", "10"),
     ("shop_name", "T-Shirt Studio"),

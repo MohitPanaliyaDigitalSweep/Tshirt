@@ -114,9 +114,19 @@ export default function OrdersPage() {
                   Edit in designer
                 </Link>
                 {(o.status === 'draft' || !o.status) ? (
-                  <button type="button" disabled={busyId === o.id} onClick={() => void onDelete(o.id)} className={btnDanger}>
-                    Delete
-                  </button>
+                  <>
+                    <button type="button" disabled={busyId === o.id} onClick={() => void onDelete(o.id)} className={btnDanger}>
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === o.id}
+                      onClick={() => void window.location.href = `/api/orders/${o.id}/request-quote`}
+                      className={btnPrimary}
+                    >
+                      Request Quote
+                    </button>
+                  </>
                 ) : null}
               </div>
             </Card>
