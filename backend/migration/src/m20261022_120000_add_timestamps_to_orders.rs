@@ -6,8 +6,8 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
-        // Add created_at column (nullable, default NULL)
-        m.alter_table(
+        // Add created_at column (ignore if already exists - idempotent)
+        let _ = m.alter_table(
             Table::alter()
                 .table("orders")
                 .add_column(
@@ -17,10 +17,10 @@ impl MigrationTrait for Migration {
                 )
                 .to_owned(),
         )
-        .await?;
+        .await;
 
-        // Add updated_at column (nullable, default NULL)
-        m.alter_table(
+        // Add updated_at column (ignore if already exists - idempotent)
+        let _ = m.alter_table(
             Table::alter()
                 .table("orders")
                 .add_column(
@@ -30,7 +30,7 @@ impl MigrationTrait for Migration {
                 )
                 .to_owned(),
         )
-        .await?;
+        .await;
 
         Ok(())
     }
