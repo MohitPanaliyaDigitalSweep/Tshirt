@@ -31,6 +31,7 @@ export default function AuthPage() {
     try {
       if (mode === 'login') {
         await login({ email: email.trim(), password });
+        // Redirect to designer if there's a saved draft, otherwise home
         nav('/', { replace: true });
       } else {
         await register({ email: email.trim(), password, name: name.trim() });

@@ -356,3 +356,22 @@ pub fn admin_routes() -> Routes {
         .add("/{id}/done", post(done))
         .add("/{id}/cancel", post(admin_cancel))
 }
+
+/// POST /api/orders/:id/export-design — export design snapshot (public).
+/// POST /api/orders/:id/export-design — export design snapshot (public).
+async fn export_design(
+    auth: auth::JWT,
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+) -> Result<Response> {
+    let Some(order) = visible_order(&ctx, &auth, id).await? else {
+        return not_found();
+    };
+    let snapshot = order.design_snapshot.clone().unwrap_or_default();
+    // Manually construct JSON response
+    let response = serde_json::json!({
+        "success": true,
+        "snapshot": snapshot,
+    });
+    format::json(response)
+}

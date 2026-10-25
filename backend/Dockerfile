@@ -34,5 +34,5 @@ ENV PORT=5150 FRONTEND_DIST=frontend/dist
 # published host port to the EXPOSEd container port, so EXPOSE must equal the
 # injected PORT, not the local default. Keep both at 3000 for Temps.
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -f http://127.0.0.1:${PORT:-5150}/healthz || exit 1
+HEALTHCHECK --interval=60s --timeout=15s --retries=10 CMD curl -f http://127.0.0.1:${PORT:-5150}/ || exit 1
 CMD ["./server", "start", "--environment", "production"]

@@ -26,6 +26,11 @@ import {
   type SizeBreakdown,
 } from '../lib/api';
 import { useSession } from '../lib/session';
+import {
+  saveDesignDraft,
+  loadDesignDraft,
+  clearDesignDraft,
+} from '../lib/designDraft';
 
 const PRESETS = ['#e5e7eb', '#ffffff', '#111827', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'];
 
@@ -128,6 +133,23 @@ export default function DesignerPage() {
     };
   }, []);
 
+  // Load design draft on mount (only for new designs, not when editing an order)
+  useEffect(() => {
+    if (editId) return; // Don't load draft when editing existing order
+    const draft = loadDesignDraft();
+    if (draft.updatedAt > 0) {
+      setViews(draft.views);
+      setColor(draft.color);
+      setMaterialId(draft.materialId);
+      setSizes(draft.sizes as unknown as SizeBreakdown);
+      setNote(draft.note);
+      setWind(draft.wind);
+      setSwingStrength(draft.swingStrength);
+      setAutorotateSpeed(draft.autorotateSpeed);
+      setInfo('Restored saved draft.');
+    }
+  }, [editId]);
+
   useEffect(() => {
     if (!editId) return;
     let alive = true;
@@ -159,6 +181,24 @@ export default function DesignerPage() {
       alive = false;
     };
   }, [editId]);
+
+  // Auto-save design draft when state changes (debounced)
+  useEffect(() => {
+    if (editId) return; // Don't auto-save when editing existing order
+    const timeoutId = setTimeout(() => {
+      saveDesignDraft({
+        views,
+        color,
+        materialId,
+        sizes: sizes as unknown as Record<string, number>,
+        note,
+        wind,
+        swingStrength,
+        autorotateSpeed,
+      });
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [views, color, materialId, sizes, note, wind, swingStrength, autorotateSpeed, editId]);
 
   function onFiles(files: FileList | null) {
     if (!files) return;
@@ -306,6 +346,8 @@ export default function DesignerPage() {
       } else if (id != null) {
         setInfo(`Draft saved as order #${id}.`);
       }
+      // Clear the design draft since it's now saved as an order
+      clearDesignDraft();
       return id;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Save failed');

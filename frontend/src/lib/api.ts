@@ -270,6 +270,12 @@ export interface Order {
   material_name?: string | null;
   customer_name?: string | null;
   customer_email?: string | null;
+  customer_phone?: string | null;
+  customer_company?: string | null;
+  customer_address?: string | null;
+  customer_city?: string | null;
+  customer_postal_code?: string | null;
+  customer_country?: string | null;
   color?: string | null;
   sizes?: string | SizeBreakdown | Record<string, number> | null;
   qty_total?: number | null;
@@ -639,12 +645,25 @@ export const SETTINGS_KEYS = [
   'shop_name',
   'support_email',
   'announcement',
+  'tshirt_preset_price',
+  'hoodie_preset_price',
+  'cap_preset_price',
 ] as const;
 
-export const SETTINGS_DEFAULTS: { fabric_wind: number; swing_strength: number; autorotate_speed: number } = {
+export const SETTINGS_DEFAULTS: { 
+  fabric_wind: number; 
+  swing_strength: number; 
+  autorotate_speed: number; 
+  tshirt_preset_price: number; 
+  hoodie_preset_price: number; 
+  cap_preset_price: number; 
+} = {
   fabric_wind: 0.35,
   swing_strength: 1,
   autorotate_speed: 1.0,
+  tshirt_preset_price: 25,
+  hoodie_preset_price: 40,
+  cap_preset_price: 15,
 };
 
 function numOrNull(v: unknown): number | null {
@@ -803,3 +822,19 @@ export async function updateProfile(input: ProfileInput): Promise<CurrentUser> {
   if (last instanceof ApiError) throw last;
   throw new ApiError(0, 'Profile update is not supported by the server yet');
 }
+
+/* ---------- design export ---------- */
+
+export interface DesignExport {
+  success: boolean;
+  snapshot: DesignSnapshot;
+  image_url?: string;
+  download_url?: string;
+  message?: string;
+}
+
+export async function exportDesign(id: number | string): Promise<DesignExport> {
+  return request<DesignExport>(`/orders/${id}/export-design`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+/* ---------- end ---------- */

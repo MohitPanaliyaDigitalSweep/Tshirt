@@ -295,6 +295,12 @@ export default function AdminOrderPage() {
             <div className="flex justify-between gap-2"><dt className="text-muted">Customer ID</dt><dd>{order.customer_id ?? '—'}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted">Name</dt><dd>{order.customer_name ?? '—'}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted">Email</dt><dd className="break-all">{order.customer_email ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">Phone</dt><dd>{order.customer_phone ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">Company</dt><dd>{order.customer_company ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">Address</dt><dd className="break-all">{order.customer_address ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">City</dt><dd>{order.customer_city ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">Postal Code</dt><dd>{order.customer_postal_code ?? '—'}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted">Country</dt><dd>{order.customer_country ?? '—'}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted">Created</dt><dd className="text-xs">{order.created_at ?? '—'}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted">Updated</dt><dd className="text-xs">{order.updated_at ?? '—'}</dd></div>
           </dl>
@@ -306,8 +312,8 @@ export default function AdminOrderPage() {
               </button>
             ))}
           </div>
-          <div className="h-64 overflow-hidden rounded-[4px] border border-rule">
-            <ShirtViewer color={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e5e7eb'} views={views} />
+          <div className="aspect-[4/3] min-h-[400px] overflow-hidden rounded-[4px] border border-rule">
+            <ShirtViewer color={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e5e7eb'} views={views} className="h-full w-full" />
           </div>
           <div className="mt-3">
             <FlatViewEditor view={activeView} items={views[activeView].items} readOnly onChange={() => {}} />

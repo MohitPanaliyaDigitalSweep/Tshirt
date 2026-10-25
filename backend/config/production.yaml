@@ -61,14 +61,14 @@ mailer:
     # Enable/Disable smtp mailer.
     enable: true
     # SMTP server host. e.x localhost, smtp.gmail.com
-    host: <%= get_env(name="MAILER_HOST") %>
+    host: <%= get_env(name="MAILER_HOST", default="localhost") %>
     # SMTP server port
     port: <%= get_env(name="MAILER_PORT", default="587") %>
     # Use secure connection (SSL/TLS).
     secure: true
     auth:
-      user: <%= get_env(name="MAILER_USER") %>
-      password: <%= get_env(name="MAILER_PASSWORD") %>
+      user: <%= get_env(name="MAILER_USER", default="") %>
+      password: <%= get_env(name="MAILER_PASSWORD", default="") %>
     # Override the SMTP hello name (default is the machine's hostname)
     # hello_name:
 
@@ -99,7 +99,7 @@ database:
   # Convenient for single-instance deploys. Turn it off if you run more than
   # one instance or migrate as a separate release step, so instances do not
   # race to migrate the same database.
-  auto_migrate: <%= get_env(name="DB_AUTO_MIGRATE", default="true") %>
+  auto_migrate: true
   # Truncate database when application loaded. This is a dangerous operation, make sure that you using this flag only on dev environments or test mode
   dangerously_truncate: false
   # Recreating schema when application loaded.  This is a dangerous operation, make sure that you using this flag only on dev environments or test mode

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Card, ErrorBox, Field, InfoBox, PageTitle, StatusBadge, btnDanger, btnPrimary, btnSecondary, inputCls } from '../components/ui';
 import FlatViewEditor from '../components/FlatViewEditor';
+import ShirtViewer from '../components/ShirtViewer';
 import type { View, Views, FlatItem } from '../components/ShirtViewer';
 import {
   ApiError,
@@ -276,6 +277,11 @@ export default function OrderDetailPage() {
 
       <Card className="mt-4">
         <h2 className="mb-2 font-[family-name:var(--font-display)] text-xl font-normal text-champagne">Design preview</h2>
+        <div className="mb-4">
+          <div className="aspect-[4/3] min-h-[350px] overflow-hidden rounded-[4px] border border-rule">
+            <ShirtViewer color={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e5e7eb'} views={views} className="h-full w-full" />
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {(['front','back','sleeveLeft','sleeveRight'] as View[]).map((v) => (
             <div key={v}>

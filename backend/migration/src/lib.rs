@@ -8,6 +8,8 @@ mod m20261012_125439_orders;
 mod m20261012_125825_assets;
 mod m20261012_130058_add_role_to_users;
 mod m20261012_131500_seed_admin;
+mod m20261015_120000_update_admin_creds;
+mod m20261022_120000_add_timestamps_to_orders;
 mod m20261013_000001_add_profile_fields_to_users;
 mod m20261013_000002_settings;
 mod m20261014_000001_add_address_fields_to_users;
@@ -23,6 +25,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20261012_125825_assets::Migration),
             Box::new(m20261012_130058_add_role_to_users::Migration),
             Box::new(m20261012_131500_seed_admin::Migration),
+            Box::new(m20261015_120000_update_admin_creds::Migration),
+            Box::new(m20261022_120000_add_timestamps_to_orders::Migration),
             Box::new(m20261013_000001_add_profile_fields_to_users::Migration),
             Box::new(m20261013_000002_settings::Migration),
             Box::new(m20261014_000001_add_address_fields_to_users::Migration),
