@@ -1,4 +1,4 @@
-export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
+export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight' | 'hoodie' | 'cap';
 
 export interface CropRect {
   /** 0..1 fractions of the source image: left, top, width, height */
@@ -38,6 +38,8 @@ export interface Views {
   back: { items: FlatItem[] };
   sleeveLeft: { items: FlatItem[] };
   sleeveRight: { items: FlatItem[] };
+  hoodie?: { items: FlatItem[] };
+  cap?: { items: FlatItem[] };
 }
 
 export const VIEW_ORDER: View[] = ['front', 'back', 'sleeveLeft', 'sleeveRight'];
@@ -47,6 +49,8 @@ export const VIEW_LABELS: Record<View, string> = {
   back: 'Back',
   sleeveLeft: 'Sleeve L',
   sleeveRight: 'Sleeve R',
+  hoodie: 'Hoodie',
+  cap: 'Cap',
 };
 
 export function emptyViews(): Views {
@@ -84,6 +88,8 @@ export const NO_GO_BAND: Record<View, { top: number }> = {
   back: { top: 0.12 },
   sleeveLeft: { top: 0.2 },
   sleeveRight: { top: 0.2 },
+  hoodie: { top: 0.2 },
+  cap: { top: 0.2 },
 };
 
 export const PRINTER_SIZES: Record<View, { w: number; h: number }> = {
@@ -91,6 +97,8 @@ export const PRINTER_SIZES: Record<View, { w: number; h: number }> = {
   back: { w: 1024, h: 1024 },
   sleeveLeft: { w: 512, h: 512 },
   sleeveRight: { w: 512, h: 512 },
+  hoodie: { w: 1024, h: 1024 },
+  cap: { w: 512, h: 512 },
 };
 
 /** clamp item center into printable area (below no-go band; sleeves: whole panel) */

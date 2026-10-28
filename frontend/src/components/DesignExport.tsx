@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Card, ErrorBox, PageTitle, btnPrimary, btnGhost, inputCls } from '../components/ui';
-import { ApiError, getOrder, type Order, type DesignSnapshot, exportDesign, useOrder } from '../lib/api';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useState, useCallback } from 'react';
+import { Card, ErrorBox, PageTitle, btnPrimary, btnGhost } from '../components/ui';
+import { ApiError, exportDesign, useOrder } from '../lib/api';
+import { useParams } from 'react-router-dom';
 
 export default function DesignExport() {
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exportData, setExportData] = useState<DesignExport | null>(null);
+  const [exportData, setExportData] = useState<any>(null);
   const { order } = useOrder();
 
-  const triggerExport = useCallback(async () => {
+  const triggerExport = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!id) {
       setError('Order ID is required');
       return;
@@ -36,7 +37,7 @@ export default function DesignExport() {
         <div className="mb-4">
           <p className="text-sm text-muted">
             Order <span className="font-medium text-champagne">#{order.id}</span> - 
-            Status: <span className="StatusBadge status={order.status}" />
+            Status: <span className={`status-badge ${order.status}`} />
           </p>
         </div>
       )}
@@ -54,7 +55,7 @@ export default function DesignExport() {
             <button
               type="button"
               disabled={loading}
-              onClick={() => void window.history.back()}
+              onClick={() => window.history.back()}
               className={btnGhost}
             >
               Cancel
@@ -84,14 +85,18 @@ export default function DesignExport() {
               <p><strong>Zones:</strong> {Object.keys(exportData.snapshot.zones || {}).length} zones</p>
               
               {exportData.snapshot.views && (
-                <p><strong>Views:</strong> Front={exportData.snapshot.views.front?.items?.length || 0}, 
-                Back={exportData.snapshot.views.back?.items?.length || 0}</p>
+                <p>
+                  <strong>Views:</strong> Front={exportData.snapshot.views.front?.items?.length || 0},{' '}
+                  Back={exportData.snapshot.views.back?.items?.length || 0}
+                </p>
               )}
               
-              <p><strong>Thumbs:</strong> Front={exportData.snapshot.thumbs?.front || 'none'}, 
-              Back={exportData.snapshot.thumbs?.back || 'none'}</p>
-            )
-          }}
+              <p>
+                <strong>Thumbs:</strong> Front={exportData.snapshot.thumbs?.front || 'none'},{' '}
+                Back={exportData.snapshot.thumbs?.back || 'none'}
+              </p>
+            </div>
+          )}
           
           {exportData.image_url && (
             <a href={exportData.image_url} target="_blank" rel="noopener noreferrer" className="mt-2 text-gold hover:text-gold-pale">

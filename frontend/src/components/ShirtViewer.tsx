@@ -6,7 +6,7 @@ import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState,
 import * as THREE from 'three';
 import { clearCanvas, drawFlatItems, itemBoxPx, PRINTER_SIZES, type Views, type FlatItem } from '../lib/flat';
 
-export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight' | 'hoodie' | 'cap';
+export type View = 'front' | 'back' | 'sleeveLeft' | 'sleeveRight';
 export type { FlatItem, Views };
 
 interface ShirtViewerProps {
@@ -20,7 +20,6 @@ interface ShirtViewerProps {
   swingStrength?: number;
   /** Auto-rotate turntable. Default true. */
   autoRotate?: boolean;
-  modelType: 'shirt' = 'shirt';
   /** OrbitControls auto-rotate speed. Default 1.0. */
   autoRotateSpeed?: number;
   /** Fixed camera orbit for verification screenshots (deg). When both are set,
@@ -31,12 +30,9 @@ interface ShirtViewerProps {
   cameraPolarDeg?: number;
   /** Extra classes merged into the container */
   className?: string;
-  /** Enable HDRI studio lighting (default: true) */
-  hdriLighting?: boolean;
-  /** Enable multiple view angles (front/back/side) */
-  multiView?: boolean;
-  /** Current view angle index */
-  viewIndex?: number;
+  /** Fixed camera orbit for verification screenshots (deg). When both are set,
+   *  FitRig places the camera on that bearing instead of the default direction.
+   *  azimuth 0 = front (+z), +90 = wearer-left outer arm (+x). */
 }
 
 const MODEL_URLS = {
@@ -66,22 +62,7 @@ type ControlsLike = {
   update(): void;
 };
 
-/** Measured bounds of node T_Hoodie_male: x±0.35 y-0.4..0.3 z-0.15..0.17. */
-const HOODIE_BOUNDS = {
-  min: new THREE.Vector3(-0.35, -0.4, -0.15),
-  max: new THREE.Vector3(0.35, 0.3, 0.17),
-};
-const HOODIE_CENTER = HOODIE_BOUNDS.min.clone().add(HOODIE_BOUNDS.max).multiplyScalar(0.5);
-const HOODIE_SIZE = HOODIE_BOUNDS.max.clone().sub(HOODIE_BOUNDS.min);
-
-/** Measured bounds of node T_Cap_male: x±0.15 y-0.2..0.1 z-0.05..0.1. */
-const CAP_BOUNDS = {
-  min: new THREE.Vector3(-0.15, -0.2, -0.05),
-  max: new THREE.Vector3(0.15, 0.1, 0.1),
-};
-const CAP_CENTER = CAP_BOUNDS.min.clone().add(CAP_BOUNDS.max).multiplyScalar(0.5);
-const CAP_SIZE = CAP_BOUNDS.max.clone().sub(CAP_BOUNDS.min);
-
+/** Camera angular-velocity -> spring-damper fabric swing */
 function SwingDriver({
   uniforms,
   controlsRef,
@@ -118,7 +99,6 @@ function SwingDriver({
     let ty = 0;
     if (controls) {
       const az = controls.getAzimuthalAngle();
-
       const pol = controls.getPolarAngle();
       if (!s.init) {
         s.prevAz = az;
@@ -159,32 +139,14 @@ function fitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
   return Math.max(fitH, fitW, MODEL_SIZE.z) * margin;
 }
 
-function HoodieFitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
-  const vFov = THREE.MathUtils.degToRad(fovDeg);
-  const fitH = HOODIE_SIZE.y / 2 / Math.tan(vFov / 2);
-  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.5, aspect));
-  const fitW = HOODIE_SIZE.x / 2 / Math.tan(hFov / 2);
-  return Math.max(fitH, fitW, HOODIE_SIZE.z) * margin;
-}
-
-function CapFitDistance(fovDeg: number, aspect: number, margin = 1.3): number {
-  const vFov = THREE.MathUtils.degToRad(fovDeg);
-  const fitH = CAP_SIZE.y / 2 / Math.tan(vFov / 2);
-  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.5, aspect));
-  const fitW = CAP_SIZE.x / 2 / Math.tan(hFov / 2);
-  return Math.max(fitH, fitW, CAP_SIZE.z) * margin;
-}
-
 function FitRig({
   controlsRef,
   azimuthDeg,
   polarDeg,
-  modelSize,
 }: {
   controlsRef: React.RefObject<ControlsLike | null>;
   azimuthDeg?: number;
   polarDeg?: number;
-  modelSize: 'shirt' | 'hoodie' | 'cap';
 }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -192,17 +154,7 @@ function FitRig({
 
   useEffect(() => {
     const controls = controlsRef.current;
-    let dist: number;
-    switch (modelSize) {
-      case 'hoodie':
-        dist = HoodieFitDistance(camera.fov, size.width / Math.max(1, size.height));
-        break;
-      case 'cap':
-        dist = CapFitDistance(camera.fov, size.width / Math.max(1, size.height));
-        break;
-      default:
-        dist = fitDistance(camera.fov, size.width / Math.max(1, size.height));
-    }
+    const dist = fitDistance(camera.fov, size.width / Math.max(1, size.height));
     let dir: THREE.Vector3;
     if (azimuthDeg != null && polarDeg != null) {
       const az = THREE.MathUtils.degToRad(azimuthDeg);
@@ -243,95 +195,462 @@ function FitRig({
     }
     introDone.current = true;
     place(dist);
-  }, [camera, controlsRef, size.width, size.height, azimuthDeg, polarDeg, modelSize]);
+  }, [camera, controlsRef, size.width, size.height, azimuthDeg, polarDeg]);
 
   return null;
 }
 
-function HDRILightingToggle({ enabled }: { enabled: boolean }) {
-  const [state, setState] = useState(enabled);
+class ViewerErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  state = { error: null as string | null };
 
-  useEffect(() => {
-    if (state) {
-      // Add HDRI environment
-      const hdrLoader = new THREE.HDRMLoader();
-      // In production, this would load from a URL
-      // For now, use a simple sky
-      const sky = new THREE.Sky();
-      sky.scale.setScalar(450);
-      // Sky settings
-      const phi = THREE.MathUtils.degToRad(90);
-      const theta = THREE.MathUtils.degToRad(180);
-      sky.userData.groundColor.setHex(0x000000);
-      sky.userData.mieCoefficient.setHex(0.005);
-      sky.userData.mieDirectionalG.setHex(0.8);
-      const scene = useThree((s) => s.scene);
-      if (scene) {
-        scene.add(sky);
-      }
+  static getDerivedStateFromError(e: unknown): { error: string } {
+    return { error: e instanceof Error ? e.message : '3D viewer failed to load' };
+  }
+
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-lacquer-deep p-6 text-center">
+          <p className="max-w-xs text-sm text-vermilion">
+            Couldn&apos;t load the 3D model. {this.state.error}
+          </p>
+        </div>
+      );
     }
-  }, [state]);
-
-  return null;
+    return this.props.children;
+  }
 }
 
-// View angle buttons
-const ViewButtons = ({
-  views,
-  setView,
-  modelType,
-}: {
-  views: Views;
-  setView: (view: View) => void;
-  modelType: 'shirt' | 'hoodie' | 'cap';
-}) => {
-  const viewLabels: Record<View, string> = {
-    front: 'Front',
-    back: 'Back',
-    sleeveLeft: 'Sleeve Left',
-    sleeveRight: 'Sleeve Right',
-    hoodie: 'Hoodie',
-    cap: 'Cap',
+/** Create offscreen print canvases + CanvasTextures, one per view. */
+function createPrintRenderer() {
+  const canvases = {
+    front: document.createElement('canvas'),
+    back: document.createElement('canvas'),
+    sleeveLeft: document.createElement('canvas'),
+    sleeveRight: document.createElement('canvas'),
+  };
+  for (const key of ['front', 'back', 'sleeveLeft', 'sleeveRight'] as const) {
+    const s = PRINTER_SIZES[key];
+    const cv = canvases[key];
+    cv.width = s.w;
+    cv.height = s.h;
+  }
+
+  const ctxs = {
+    front: canvases.front.getContext('2d'),
+    back: canvases.back.getContext('2d'),
+    sleeveLeft: canvases.sleeveLeft.getContext('2d'),
+    sleeveRight: canvases.sleeveRight.getContext('2d'),
   };
 
-  return (
-    <div className="flex gap-2 pt-2">
-      {['front', 'back', 'sleeveLeft', 'sleeveRight'].map((view) => (
-        <button
-          key={view}
-          onClick={() => setView(view as View)}
-          className={`rounded-full border px-2 text-xs font-medium ${
-            views === view ? 'border-gold bg-gold/15 text-gold' : 'border-rule bg-graphite text-muted hover:border-rule-strong hover:text-gold'
-          }`}
-        >
-          {viewLabels[view as View]}
-        </button>
-      ))}
-      {modelType === 'hoodie' && (
-        <button
-          onClick={() => setView('hoodie' as View)}
-          className={`rounded-full border px-2 text-xs font-medium ${
-            views === 'hoodie' ? 'border-gold bg-gold/15 text-gold' : 'border-rule bg-graphite text-muted hover:border-rule-strong hover:text-gold'
-          }`}
-        >
-          {viewLabels.hoodie}
-        </button>
-      )}
-      {modelType === 'cap' && (
-        <button
-          onClick={() => setView('cap' as View)}
-          className={`rounded-full border px-2 text-xs font-medium ${
-            views === 'cap' ? 'border-gold bg-gold/15 text-gold' : 'border-rule bg-graphite text-muted hover:border-rule-strong hover:text-gold'
-          }`}
-        >
-          {viewLabels.cap}
-        </button>
-      )}
-    </div>
-  );
-};
+  const texF = new THREE.CanvasTexture(canvases.front);
+  const texB = new THREE.CanvasTexture(canvases.back);
+  const texSL = new THREE.CanvasTexture(canvases.sleeveLeft);
+  const texSR = new THREE.CanvasTexture(canvases.sleeveRight);
 
-export type { View } from '../lib/flat';
+  const textures = [texF, texB, texSL, texSR];
+  textures.forEach((t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.generateMipmaps = false;
+  });
+
+  const renderRef = { current: null as null | ((views?: Views) => void) };
+  // Late image loads must repaint the CURRENT views — never a blank slate
+  // (cold-cache uploads would otherwise clear all four print textures).
+  let lastViews: Views | undefined;
+  const redraw = () => {
+    if (lastViews) renderRef.current?.(lastViews);
+  };
+
+  const render = (views?: Views) => {
+    if (views) lastViews = views;
+    const viewsSafe = views || { front: { items: [] }, back: { items: [] }, sleeveLeft: { items: [] }, sleeveRight: { items: [] } };
+    const pairs: Array<{ key: 'front' | 'back' | 'sleeveLeft' | 'sleeveRight'; items: FlatItem[] }> = [
+      { key: 'front', items: viewsSafe.front.items },
+      { key: 'back', items: viewsSafe.back.items },
+      { key: 'sleeveLeft', items: viewsSafe.sleeveLeft.items },
+      { key: 'sleeveRight', items: viewsSafe.sleeveRight.items },
+    ];
+    for (const { key, items } of pairs) {
+      const ctx = ctxs[key];
+      if (ctx) {
+        clearCanvas(ctx, canvases[key].width, canvases[key].height);
+        drawFlatItems(ctx, canvases[key].width, canvases[key].height, items, redraw);
+      }
+    }
+    texF.needsUpdate = true;
+    texB.needsUpdate = true;
+    texSL.needsUpdate = true;
+    texSR.needsUpdate = true;
+  };
+  renderRef.current = render;
+
+  const hasContent = (views?: Views) => {
+    const v = views;
+    if (!v) return [0, 0, 0, 0];
+    return [
+      v.front.items.length > 0 ? 1 : 0,
+      v.back.items.length > 0 ? 1 : 0,
+      0,
+      0,
+    ];
+  };
+
+  return { canvases, texF, texB, texSL, texSR, render, hasContent };
+}
+
+const _sleeveTexCache = new Map<string, THREE.Texture>();
+const _warnedSleeveMiss = new Set<string | number>();
+
+function _ensureSleeveTexture(item: FlatItem, bump: () => void): THREE.Texture | null {
+  if (item.kind === 'image' && item.url) {
+    const url = item.url;
+    const hit = _sleeveTexCache.get(url);
+    if (hit) return hit;
+    const tex = new THREE.Texture();
+    _sleeveTexCache.set(url, tex);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      tex.image = img;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      bump();
+    };
+    try {
+      img.src = url;
+    } catch {
+      _sleeveTexCache.delete(url);
+    }
+    return tex;
+  }
+  if (item.kind === 'text') {
+    const key = `text:${item.text ?? ''}|${item.font ?? 'Inter'}|${item.size ?? 60}|${item.color ?? '#ffffff'}`;
+    const hit = _sleeveTexCache.get(key);
+    if (hit) return hit;
+    const cvs = document.createElement('canvas');
+    cvs.width = 256;
+    cvs.height = 256;
+    const ctx = cvs.getContext('2d');
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, 256, 256);
+    const px = Math.max(8, (item.size ?? 60) * (256 / 1024));
+    ctx.font = `600 ${px}px ${item.font || 'Inter'}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = item.color || '#ffffff';
+    const lines = String(item.text ?? '').split('\\n');
+    const lh = px * 1.15;
+    const y0 = -((lines.length - 1) * lh) / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, 128, 128 + y0 + i * lh));
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    _sleeveTexCache.set(key, tex);
+    return tex;
+  }
+  return null;
+}
+
+function ShirtMesh({
+  color,
+  uniforms,
+  views,
+}: {
+  color: string;
+  uniforms: {
+    uSwing: { value: THREE.Vector2 };
+    uTime: { value: number };
+    uWind: { value: number };
+    uPrintMap: { value: THREE.Texture[] };
+    uPrintOn: { value: number[] };
+  };
+  views?: Views;
+}) {
+  const { nodes } = useGLTF(MODEL_URL) as unknown as { nodes: Record<string, THREE.Mesh> };
+  const geometry = nodes?.['T_Shirt_male']?.geometry;
+
+  const material = useMemo(() => {
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(color),
+      roughness: 0.85,
+      metalness: 0,
+      sheen: 1,
+      sheenRoughness: 0.5,
+      sheenColor: new THREE.Color('#ffffff'),
+    });
+    mat.onBeforeCompile = (shader: {
+      uniforms: Record<string, THREE.IUniform>;
+      vertexShader: string;
+      fragmentShader: string;
+    }) => {
+      shader.uniforms['uSwing'] = uniforms.uSwing;
+      shader.uniforms['uTime'] = uniforms.uTime;
+      shader.uniforms['uWind'] = uniforms.uWind;
+      shader.uniforms['uPrintMap'] = uniforms.uPrintMap;
+      shader.uniforms['uPrintOn'] = uniforms.uPrintOn;
+
+      // Vertex: add swing + export world position/normal for print projectors
+      shader.vertexShader =
+        'uniform vec2 uSwing;\nuniform float uTime;\nuniform float uWind;\n' +
+        'varying vec3 vWorldPosition;\nvarying vec3 vWorldNormal;\n' +
+        shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          float swingW = pow(clamp((0.05 - position.y) / 0.45, 0.0, 1.0), 1.4);
+          transformed.x += uSwing.x * swingW;
+          transformed.z += uSwing.y * swingW;
+          transformed.y -= length(uSwing) * 0.35 * swingW
+            + sin(uTime * 14.0 + position.y * 22.0 + position.x * 15.0) * 0.006 * uWind * swingW
+            + sin(uTime * 1.8 + position.x * 4.0) * 0.003 * swingW;
+          vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);`,
+        );
+
+      // Fragment: projectors
+      const projectorChunk = `
+uniform sampler2D uPrintMap[4];
+uniform float uPrintOn[4];
+varying vec3 vWorldPosition;
+varying vec3 vWorldNormal;
+
+// rex(v,[a,b]) = (v-a)/(b-a)
+float rex(float v, float a, float b) {
+  return (v - a) / (b - a);
+}
+vec2 clampEdge(vec2 uv) {
+  return clamp(uv, 0.01, 0.99);
+}
+`;
+      const before = '#include <common>';
+      shader.fragmentShader = shader.fragmentShader.replace(before, before + projectorChunk);
+
+      const mixChunk = `
+vec4 printColor = vec4(0.0);
+vec3 P = vWorldPosition;
+vec3 N = normalize(vWorldNormal);
+vec3 V = normalize(cameraPosition - P);
+
+// front: axis +z; u = rex(x,[-0.276,0.274]), v = rex(y,[-0.352,0.261])
+if (uPrintOn[0] > 0.5) {
+  vec2 uvFront = vec2(rex(P.x, -0.276, 0.274), rex(P.y, -0.352, 0.261));
+  if (uvFront.x >= 0.0 && uvFront.x <= 1.0 && uvFront.y >= 0.0 && uvFront.y <= 1.0) {
+    float mask = 1.0;
+    // feather edges ~2-3px equivalent in texture space
+    float fe = 0.006;
+    mask *= smoothstep(0.0, fe, uvFront.x) * smoothstep(1.0, 1.0-fe, uvFront.x);
+    mask *= smoothstep(0.0, fe, uvFront.y) * smoothstep(1.0, 1.0-fe, uvFront.y);
+    // single-sided: dot(normal, projectorDirView) > 0.25; projector dir for front is +z in view space? approx using world +z
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,1.0)));
+    if (mask > 0.001) {
+      vec4 c = texture2D(uPrintMap[0], clampEdge(uvFront));
+      // transparent canvas regions contribute ZERO
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
+    }
+  }
+}
+// back: axis -z; u mirrored so right-on-fabric = uv.x=1-u
+if (uPrintOn[1] > 0.5) {
+  vec2 uvBack = vec2(rex(P.x, -0.276, 0.274), rex(P.y, -0.352, 0.261));
+  uvBack.x = 1.0 - uvBack.x;
+  if (uvBack.x >= 0.0 && uvBack.x <= 1.0 && uvBack.y >= 0.0 && uvBack.y <= 1.0) {
+    float mask = 1.0;
+    float fe = 0.006;
+    mask *= smoothstep(0.0, fe, uvBack.x) * smoothstep(1.0, 1.0-fe, uvBack.x);
+    mask *= smoothstep(0.0, fe, uvBack.y) * smoothstep(1.0, 1.0-fe, uvBack.y);
+    mask *= smoothstep(0.25, 0.35, dot(N, vec3(0.0,0.0,-1.0)));
+    if (mask > 0.001) {
+      vec4 c = texture2D(uPrintMap[1], clampEdge(uvBack));
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
+    }
+  }
+}
+// sleeves: CYLINDRICAL projection around the sleeve axis (tube runs along +/-x).
+// axis point at same x, tube center y=0.10 z=0.01 (measured mid-sleeve).
+// FINAL MAPPING (R-061 sleeve fix — outer-arm targeting):
+//   Measured GLB vertex bins show the true arm tube lives at |x| in
+//   [0.18, 0.27] (tube y-mean ~+0.10, y confined to [-0.02, +0.21]);
+//   |x| in [0.08, 0.18] is shoulder cap + torso side (y spans
+//   -0.35..+0.25, y-mean negative). The old window (tip 0.276 ->
+//   shoulder 0.08) mapped canvas-top artwork onto x~0.11, i.e. the
+//   shoulder cap. The window is now shifted down/outward onto the arm:
+//   tip 0.27 -> seam 0.18, and the x-range gate rejects everything
+//   seam-ward of 0.175 plus a y-band gate rejects torso drape.
+//   Left = wearer's left = +x side (screen-right in front view);
+//   right = wearer's right = -x side (screen-left in front view).
+//   u = angle fraction around the tube, u=0.5 = TOP of the sleeve (theta=0).
+//   v = along-sleeve position, v=1 = SEAM side (canvas top), v=0 = cuff tip.
+//   (CanvasTexture flipY => canvas top row = v=1 = seam, canvas bottom = cuff.)
+//   Left (+x):  v = rex(P.x, 0.27, 0.18)   (tip 0.27 -> seam 0.18),
+//               u MIRRORED (1-u) so text reads correctly viewed from outside-left.
+//   Right (-x): v = rex(P.x, -0.27, -0.18) (tip -0.27 -> seam -0.18),
+//               u unmirrored (reads correctly viewed from outside-right).
+//   Preset placement (R-065, canvas y 0=top, v = 1-y):
+//     Logo (0.5, 0.62) -> v=0.38 -> x = 0.27-0.38*0.09 = 0.236 (mid-outer arm, ~1-2in above hem)
+//     Strip (0.5, 0.585) -> v=0.415 -> x = 0.27-0.415*0.09 = 0.233 (outer arm center)
+//   Angular window: full strength at top, feathered out by ~90deg (keeps print
+//   off the underside/armpit while covering top + upper sides).
+//   Normal gate: radial outward + kill straight-down fragments (N.y) to keep
+//   print off the torso and inner arm. x-range + y-band gates keep sleeves
+//   off the shoulder cap and torso drape.
+if (uPrintOn[2] > 0.5) {
+  vec3 DL = P - vec3(P.x, 0.10, 0.01);
+  float thetaL = atan(DL.z, DL.y);
+  vec2 uvL = vec2(0.75 - thetaL / 6.2831853, rex(P.x, 0.27, 0.18));
+  if (uvL.x >= 0.0 && uvL.x <= 1.0 && uvL.y >= 0.0 && uvL.y <= 1.0 && P.x > 0.175 && P.x < 0.275 && P.y > -0.06 && P.y < 0.23) {
+    float mask = 1.0;
+    float fe = 0.01;
+    mask *= smoothstep(0.0, fe, uvL.x) * smoothstep(1.0, 1.0-fe, uvL.x);
+    mask *= smoothstep(0.0, fe, uvL.y) * smoothstep(1.0, 1.0-fe, uvL.y);
+    // outer-top angular window: full strength at top, feather out by ~90deg
+    // (keeps print off the underside/armpit, shows on top + upper sides)
+    float angL = abs(thetaL - 1.5707963);
+    mask *= 1.0 - smoothstep(1.0, 1.22, angL);
+    // radial normal gating: face must point away from the sleeve axis
+    vec3 radL = normalize(vec3(0.0, DL.y, DL.z) + vec3(0.0, 1e-4, 0.0));
+    mask *= smoothstep(0.35, 0.50, dot(N, radL));
+    // kill underside fragments only (tighter than before: -0.25 -> 0.0)
+    mask *= smoothstep(-0.25, 0.0, N.y);
+    if (mask > 0.001) {
+      vec4 c = texture2D(uPrintMap[2], clampEdge(uvL));
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
+    }
+  }
+}
+if (uPrintOn[3] > 0.5) {
+  vec3 DR = P - vec3(P.x, 0.10, 0.01);
+  float thetaR = atan(DR.z, DR.y);
+  vec2 uvR = vec2(thetaR / 6.2831853 + 0.25, rex(P.x, -0.27, -0.18));
+  if (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0 && P.x < -0.175 && P.x > -0.275 && P.y > -0.06 && P.y < 0.23) {
+    float mask = 1.0;
+    float fe = 0.01;
+    mask *= smoothstep(0.0, fe, uvR.x) * smoothstep(1.0, 1.0-fe, uvR.x);
+    mask *= smoothstep(0.0, fe, uvR.y) * smoothstep(1.0, 1.0-fe, uvR.y);
+    float angR = abs(thetaR - 1.5707963);
+    mask *= 1.0 - smoothstep(1.0, 1.22, angR);
+    vec3 radR = normalize(vec3(0.0, DR.y, DR.z) + vec3(0.0, 1e-4, 0.0));
+    mask *= smoothstep(0.35, 0.50, dot(N, radR));
+    mask *= smoothstep(-0.25, 0.0, N.y);
+    if (mask > 0.001) {
+      vec4 c = texture2D(uPrintMap[3], clampEdge(uvR));
+      if (c.a > 0.003) {
+        printColor = mix(printColor, c, c.a * mask);
+      }
+    }
+  }
+}
+// print acts as diffuse BEFORE lighting (no emissive/basic): fabric light response applies.
+diffuseColor.rgb = mix(diffuseColor.rgb, printColor.rgb, printColor.a);
+`;
+      const diffuse = '#include <color_fragment>';
+      shader.fragmentShader = shader.fragmentShader.replace(diffuse, diffuse + '\n' + mixChunk);
+    };
+    mat.customProgramCacheKey = () => 'shirt-embedded-print-v6-sleeve-outer-arm-r065';
+    return mat;
+  }, []);
+
+  useEffect(() => {
+    material.color.set(color);
+  }, [material, color]);
+
+  useEffect(() => {
+    return () => {
+      material.dispose();
+    };
+  }, [material]);
+
+  const [bump, setBump] = useState(0);
+  const forceBump = useCallback(() => setBump((t) => t + 1), []);
+
+  const sleeveDecals = useMemo(() => {
+    const out: Array<{
+      key: string | number;
+      map: THREE.Texture;
+      position: THREE.Vector3;
+      rotation: THREE.Euler;
+      scale: [number, number, number];
+    }> = [];
+    const mesh = new THREE.Mesh(geometry);
+    const viewsSafe = views || ({ sleeveLeft: { items: [] }, sleeveRight: { items: [] }, front: { items: [] }, back: { items: [] } } as unknown as Views);
+    const sides: Array<'left' | 'right'> = ['left', 'right'];
+    for (const side of sides) {
+      const viewKey = side === 'left' ? 'sleeveLeft' : 'sleeveRight';
+      const items = viewsSafe[viewKey]?.items ?? [];
+      const sideSign = side === 'left' ? 1 : -1;
+      for (const item of items) {
+        if (item.visible === false) continue;
+        const tex = _ensureSleeveTexture(item, forceBump);
+        if (!tex) continue;
+        const cx = item.x;
+        const cy = item.y;
+        const worldX = sideSign * THREE.MathUtils.lerp(0.18, 0.26, cx);
+        const worldY = THREE.MathUtils.lerp(0.22, 0.06, cy);
+        const dir = new THREE.Vector3(0, 0, -1);
+        const origin = new THREE.Vector3(worldX, worldY, 0.25);
+        const ray = new THREE.Raycaster(origin, dir.clone(), 0, 1);
+        const hits = ray.intersectObject(mesh, false);
+        if (hits.length === 0) {
+          if (!_warnedSleeveMiss.has(item.id)) {
+            _warnedSleeveMiss.add(item.id);
+            console.warn('[R-066] sleeve raycast miss for item', item.id);
+          }
+          continue;
+        }
+        const hit = hits[0];
+        const nrm = (hit.normal ? hit.normal.clone() : null);
+        if (!nrm) continue;
+        nrm.normalize();
+        const position = hit.point.clone().addScaledVector(nrm, 0.002);
+        const baseQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
+        const extraDeg = (item.rotationDeg ?? 0) + (item.kind === 'text' ? 90 : 0);
+        const extraQ = new THREE.Quaternion().setFromAxisAngle(nrm, THREE.MathUtils.degToRad(extraDeg));
+        const q = extraQ.clone().multiply(baseQ);
+        const rotation = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+        const box = itemBoxPx(512, item);
+        const sx = (box.w / 512) * (0.10 / 0.45);
+        const sy = (box.h / 512) * (0.10 / 0.45);
+        out.push({
+          key: item.id,
+          map: tex,
+          position,
+          rotation,
+          scale: [sx, sy, Math.max(sx, sy)],
+        });
+      }
+    }
+    void bump;
+    return out;
+  }, [geometry, views, bump, forceBump]);
+
+  if (!geometry) return null;
+  return (
+    <mesh geometry={geometry} material={material} castShadow receiveShadow>
+      {sleeveDecals.map((d) => (
+        <Decal
+          key={d.key}
+          position={d.position}
+          rotation={d.rotation}
+          scale={d.scale}
+          map={d.map}
+          material-alphaTest={0.1}
+          material-transparent
+          polygonOffsetFactor={-10}
+          depthTest={false}
+        />
+      ))}
+    </mesh>
+  );
+}
+
+
 
 export default function ShirtViewer({
   color = '#e5e7eb',
@@ -343,9 +662,6 @@ export default function ShirtViewer({
   cameraAzimuthDeg,
   cameraPolarDeg = 78,
   className = '',
-  hdriLighting = true,
-  multiView = false,
-  viewIndex = 0,
 }: ShirtViewerProps) {
   const controlsRef = useRef<ControlsLike | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -435,7 +751,6 @@ export default function ShirtViewer({
           />
           <directionalLight position={[-1.6, 0.9, -1.6]} intensity={0.7} color="#f2e3c0" />
           <Interior />
-          {hdriLighting && <HDRILightingToggle enabled={true} />}
           <Suspense fallback={null}>
             <ShirtMesh color={color} uniforms={uniforms} views={views} />
           </Suspense>
@@ -466,13 +781,7 @@ export default function ShirtViewer({
             wind={clamp(wind, 0, 1)}
             strength={Number.isFinite(swingStrength) ? Math.max(0, swingStrength) : 1}
           />
-          <FitRig
-            controlsRef={controlsRef}
-            azimuthDeg={cameraAzimuthDeg}
-            polarDeg={cameraPolarDeg}
-            modelSize={modelType === 'hoodie' ? 'hoodie' : modelType === 'cap' ? 'cap' : 'shirt'}
-          />
-          {multiView && <ViewButtons views={views} setView={/* view setter */} modelType={modelType} />}
+          <FitRig controlsRef={controlsRef} azimuthDeg={cameraAzimuthDeg} polarDeg={cameraPolarDeg} />
         </Canvas>
       </ViewerErrorBoundary>
       <div
@@ -484,4 +793,6 @@ export default function ShirtViewer({
   );
 }
 
-useGLTF.preload(MODEL_URLS[modelType]);
+useGLTF.preload(MODEL_URLS['shirt']);
+useGLTF.preload(MODEL_URLS['hoodie']);
+useGLTF.preload(MODEL_URLS['cap']);

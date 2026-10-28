@@ -25,7 +25,6 @@ export default function OrdersPage() {
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   async function onDelete(id: number) {
@@ -113,21 +112,19 @@ export default function OrdersPage() {
                 <Link to={`/?order=${o.id}`} className="inline-flex min-h-[44px] items-center rounded-[4px] border border-rule px-4 text-sm font-semibold text-warm transition-colors hover:border-rule-strong hover:text-gold">
                   Edit in designer
                 </Link>
-                {(o.status === 'draft' || !o.status) ? (
-                  <>
-                    <button type="button" disabled={busyId === o.id} onClick={() => void onDelete(o.id)} className={btnDanger}>
-                      Delete
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === o.id}
-                      onClick={() => void window.location.href = `/api/orders/${o.id}/request-quote`}
-                      className={btnPrimary}
-                    >
-                      Request Quote
-                    </button>
-                  </>
-                ) : null}
+                <div className="mt-4 flex gap-2 border-t border-rule pt-4">
+                  <button type="button" disabled={busyId === o.id} onClick={() => void onDelete(o.id)} className={btnDanger}>
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === o.id}
+                    onClick={() => { window.location.href = '/api/orders/' + o.id + '/request-quote'; }}
+                    className={btnPrimary}
+                  >
+                    Request Quote
+                  </button>
+                </div>
               </div>
             </Card>
           ))}

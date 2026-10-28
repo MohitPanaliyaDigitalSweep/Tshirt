@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react';
+
 export const API_BASE = '/api';
 
 export const TOKEN_KEY = 'ts_token';
@@ -838,3 +840,12 @@ export async function exportDesign(id: number | string): Promise<DesignExport> {
 }
 
 /* ---------- end ---------- */
+
+export function useOrder() {
+  const [order] = useState<Order | null>(null);
+  useEffect(() => {
+    // In a real app, this would fetch order data from the API
+    // For now, return null as there's no active order context
+  }, []);
+  return { order };
+}
